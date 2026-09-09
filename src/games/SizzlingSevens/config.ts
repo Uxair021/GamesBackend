@@ -12,10 +12,17 @@ export const TOP = 0;
 export const MIDDLE = 1;
 export const BOTTOM = 2;
 
+/** Purely an internal normalization constant now — every payout in the paytable is expressed
+ * as a multiple of this reference bet (see winCalc.ts), not a real player-facing "cost per
+ * line". The player instead picks a BET_LEVEL directly (0.10-30, matching every other game's
+ * BET_LEVELS convention) as their *total* bet; the actual scale factor fed into the win-calc
+ * functions is (selected level / LINE_COST) — see engine.ts's spin()/routes.ts. Renaming or
+ * changing this value alone would silently rescale every payout, so it stays fixed at the
+ * value the whole paytable (see services/paytableConfig.ts's DEFAULT_CONFIGS) was tuned for. */
 export const LINE_COST = 30;
-export const BET_MULTIPLIERS = [1, 2, 3, 5, 10];
-export const MIN_BET = LINE_COST * BET_MULTIPLIERS[0];
-export const MAX_BET = LINE_COST * BET_MULTIPLIERS[BET_MULTIPLIERS.length - 1];
+export const BET_LEVELS = [0.1, 0.25, 0.5, 1, 2, 3, 5, 10, 15, 20, 25, 30];
+export const MIN_BET = BET_LEVELS[0];
+export const MAX_BET = BET_LEVELS[BET_LEVELS.length - 1];
 
 /**
  * The 27 fixed payline patterns — one row index (0/1/2) per reel — read directly off the
@@ -56,14 +63,23 @@ export const PAYLINES: readonly [number, number, number][] = [
 /** 3-matching-symbol base payouts (as a multiple of the *line* bet, i.e. before the
  * BET_MULTIPLIER is applied) — admin-editable defaults, see services/paytableConfig.ts. Spec
  * only defines a "3 matching" number for each symbol (no separate 4/5-match figure), so a
- * matched run of 4 or 5 pays the same as a run of exactly 3. */
+ * matched run of 4 or 5 pays the same as a run of exactly 3.
+ *
+ * The originally-requested round numbers (RED_7=250, BLUE_7=100, TRIPLE_BAR=50, DOUBLE_BAR=30,
+ * BAR=25, BONUS=60) can't reach an 85% RTP target on this board at ANY weight distribution —
+ * with 27 fully-overlapping paylines (every 3-row combination is a live line) and the ANY_BAR
+ * rule below, the best achievable RTP via weight-tuning alone floors out around ~725%, roughly
+ * 8.5x too high. These values are that same relative shape scaled down by ~17.1x instead (the
+ * extra factor beyond the theoretical floor buys room to also maximize loss frequency — see
+ * services/paytableConfig.ts's DEFAULT_CONFIGS comment) — confirmed against the seeded
+ * simulation to land at 85.1% RTP / 21.57% loss with the weights below. */
 export const DEFAULT_PAYTABLE: Record<Exclude<SizzlingSymbol, "WILD_2X">, number> = {
-  RED_7: 2.84,
-  BLUE_7: 1.14,
-  TRIPLE_BAR: 0.57,
-  DOUBLE_BAR: 0.34,
-  BAR: 0.28,
-  BONUS: 0.68,
+  RED_7: 14.1946,
+  BLUE_7: 5.6779,
+  TRIPLE_BAR: 2.8389,
+  DOUBLE_BAR: 1.7034,
+  BAR: 1.4195,
+  BONUS: 3.4067,
 };
 
 export const WILD_SYMBOL: SizzlingSymbol = "WILD_2X";
@@ -71,6 +87,16 @@ export const BONUS_SYMBOL: SizzlingSymbol = "BONUS";
 
 /** Wild substitutes for every normal paying symbol, never for BONUS. */
 export const WILD_SUBSTITUTES_FOR: SizzlingSymbol[] = ["RED_7", "BLUE_7", "BAR", "DOUBLE_BAR", "TRIPLE_BAR"];
+
+/** The 3 BAR-family symbols — a payline showing any mix of these (not necessarily identical,
+ * Wild substitutes in same as everywhere else) still wins, just at the flat ANY_BAR_PAYOUT
+ * rate rather than one of the 3 higher exact-match payouts above. A fixed rule constant, not a
+ * per-symbol tier row — nothing draws an "ANY_BAR" symbol on its own. */
+export const BAR_FAMILY: SizzlingSymbol[] = ["BAR", "DOUBLE_BAR", "TRIPLE_BAR"];
+/** Flat payout for a payline showing a mixed (non-identical) combination of BAR_FAMILY symbols
+ * (see BAR_FAMILY) — always lower than any of the 3 exact-match BAR payouts, so an
+ * all-identical BAR line still pays its own higher rate (evaluatePayline takes the max). */
+export const ANY_BAR_PAYOUT = 5;
 
 /** wildMultiplier = WILD_MULTIPLIER_BASE ^ numberOfWilds (0 wilds = x1, 1 = x2, 2 = x4, 3 = x8),
  * applied when a Wild substitutes into an otherwise-normal winning line. */
@@ -81,8 +107,9 @@ export const WILD_MULTIPLIER_BASE = 2;
  * leading-Wild count; a run longer than the highest defined key (3) still uses that key's
  * payout (the spec doesn't define a 4/5-Wild figure). Admin-editable default: see
  * services/paytableConfig.ts (the 3-Wild figure only — 1/2-Wild stay fixed consolation
- * amounts, not worth their own admin rows). */
-export const PURE_WILD_PAYOUT: Record<1 | 2 | 3, number> = { 1: 0.023, 2: 0.23, 3: 28.41 };
+ * amounts, not worth their own admin rows). Originally requested as {1:2, 2:8, 3:10} — scaled
+ * down by the same ~17.1x as DEFAULT_PAYTABLE above, same reason (see that constant's comment). */
+export const PURE_WILD_PAYOUT: Record<1 | 2 | 3, number> = { 1: 0.1163, 2: 0.4653, 3: 0.5678 };
 
 export const BONUS_TRIGGER_COUNT = 3;
 

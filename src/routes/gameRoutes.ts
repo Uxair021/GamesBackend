@@ -11,6 +11,16 @@ import fiveXRewindRoutes from "../games/FiveXRewind/routes";
 import { fiveXRewindMeta } from "../games/FiveXRewind/meta";
 import sizzlingSevensRoutes from "../games/SizzlingSevens/routes";
 import { sizzlingSevensMeta } from "../games/SizzlingSevens/meta";
+import crystalCloverRoutes from "../games/CrystalClover/routes";
+import { crystalCloverMeta } from "../games/CrystalClover/meta";
+import fruity777Routes from "../games/Fruity777/routes";
+import { fruity777Meta } from "../games/Fruity777/meta";
+import mega10xPayRoutes from "../games/Mega10XPay/routes";
+import { mega10xPayMeta } from "../games/Mega10XPay/meta";
+import vegasHitsRoutes from "../games/VegasHits/routes";
+import { vegasHitsMeta } from "../games/VegasHits/meta";
+import lifeOfLuxuryRoutes from "../games/LifeOfLuxury/routes";
+import { lifeOfLuxuryMeta } from "../games/LifeOfLuxury/meta";
 
 // Add each new game's meta + router here as it's built.
 const games = [
@@ -20,6 +30,11 @@ const games = [
   { meta: crazy777Meta, router: crazy777Routes },
   { meta: fiveXRewindMeta, router: fiveXRewindRoutes },
   { meta: sizzlingSevensMeta, router: sizzlingSevensRoutes },
+  { meta: crystalCloverMeta, router: crystalCloverRoutes },
+  { meta: fruity777Meta, router: fruity777Routes },
+  { meta: mega10xPayMeta, router: mega10xPayRoutes },
+  { meta: vegasHitsMeta, router: vegasHitsRoutes },
+  { meta: lifeOfLuxuryMeta, router: lifeOfLuxuryRoutes },
 ];
 
 const router = Router();

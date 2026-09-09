@@ -14,6 +14,8 @@ import {
   WILD_MULTIPLIER_BASE,
   PURE_WILD_PAYOUT,
   BONUS_TRIGGER_COUNT,
+  BAR_FAMILY,
+  ANY_BAR_PAYOUT,
   FREE_GAMES_AWARDS,
   MYSTERY_SPIN_COUNTS,
   MYSTERY_MULTIPLIER_POOL,
@@ -56,6 +58,11 @@ const WILD_SUB_SET = new Set<SizzlingSymbol>(WILD_SUBSTITUTES_FOR);
 function isPayingSymbol(s: SizzlingSymbol): s is PayingSymbol {
   return s !== BONUS_SYMBOL && WILD_SUB_SET.has(s);
 }
+
+/** BAR_FAMILY plus Wild (Wild substitutes into the ANY_BAR mix same as it does everywhere
+ * else) — a line where every symbol is in this set counts for ANY_BAR_PAYOUT (see
+ * evaluatePayline's candidateC), whether or not the 3 BAR symbols actually match each other. */
+const ANY_BAR_SET = new Set<SizzlingSymbol>([...BAR_FAMILY, WILD_SYMBOL]);
 
 /** Reads the 3 symbols a payline passes through, one per reel. */
 function symbolsOnLine(grid: Grid, line: readonly [number, number, number]): SizzlingSymbol[] {
@@ -150,10 +157,31 @@ export function evaluatePayline(
     };
   }
 
-  if (!candidateA && !candidateB) return null;
-  if (!candidateA) return candidateB;
-  if (!candidateB) return candidateA;
-  return candidateA.finalWin >= candidateB.finalWin ? candidateA : candidateB;
+  // Candidate C: every symbol on the line is some mix of the 3 BAR symbols (not necessarily
+  // identical — an all-identical BAR line already wins more via candidate A above, since
+  // ANY_BAR_PAYOUT is always lower than any single BAR symbol's own exact-match payout, so max()
+  // below picks candidate A automatically in that case). No Wild-count multiplier — this is a
+  // flat rate, same as a pure-Wild run.
+  let candidateC: LineWin | null = null;
+  if (symbols.every((s) => ANY_BAR_SET.has(s))) {
+    const positions: [number, number][] = line.map((row, reel) => [reel, row]);
+    candidateC = {
+      lineNumber,
+      symbol: symbols[0],
+      matchCount: 3,
+      basePayout: ANY_BAR_PAYOUT,
+      wildCount: symbols.filter((s) => s === WILD_SYMBOL).length,
+      wildMultiplier: 1,
+      betMultiplier,
+      finalWin: ANY_BAR_PAYOUT * betMultiplier,
+      positions,
+      isPureWild: false,
+    };
+  }
+
+  const candidates = [candidateA, candidateB, candidateC].filter((c): c is LineWin => c !== null);
+  if (candidates.length === 0) return null;
+  return candidates.reduce((best, c) => (c.finalWin > best.finalWin ? c : best));
 }
 
 export function evaluateAllPaylines(

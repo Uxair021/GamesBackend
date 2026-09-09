@@ -6,8 +6,8 @@ import { requireAuth } from "../../middleware/requireAuth";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { getPaytableConfig } from "../../services/paytableConfig";
 import { emitSpinEvent } from "../../realtime/eventBus";
-import { spin, spinForTier, spinWithGrid, isValidGrid, SpinResult } from "./engine";
-import { sizzlingSevensMeta } from "./meta";
+import { spin, spinForTier, SpinResult } from "./engine";
+import { vegasHitsMeta } from "./meta";
 import {
   LINE_COST,
   BET_LEVELS,
@@ -15,12 +15,12 @@ import {
   MAX_BET,
   PAYLINES,
   DEFAULT_PAYTABLE,
-  WILD_MULTIPLIER_BASE,
-  PURE_WILD_PAYOUT,
+  DEFAULT_WILD_RULES,
   BONUS_TRIGGER_COUNT,
-  FREE_GAMES_AWARDS,
-  MYSTERY_SPIN_COUNTS,
-  MYSTERY_MULTIPLIER_POOL,
+  SCATTER_PAYOUT_MULTIPLE_OF_BET,
+  FREE_SPINS_PER_TRIGGER,
+  MAX_TOTAL_FREE_SPINS,
+  CHILI_MULTIPLIER_POOL,
 } from "./config";
 
 const router = Router();
@@ -28,20 +28,19 @@ const router = Router();
 router.get(
   "/config",
   asyncHandler(async (_req: Request, res: Response) => {
-    const paytableConfig = await getPaytableConfig(sizzlingSevensMeta.id);
+    const paytableConfig = await getPaytableConfig(vegasHitsMeta.id);
 
     const paytable = Object.keys(DEFAULT_PAYTABLE).map((key) => {
       const row = paytableConfig.tiers.find((t) => t.key === key);
       return { symbol: key, payout: row?.payoutMultiplier ?? DEFAULT_PAYTABLE[key as keyof typeof DEFAULT_PAYTABLE] };
     });
-    const wildRow = paytableConfig.tiers.find((t) => t.key === "WILD_2X");
-    // The reel now determines its own result client-side (freezes wherever Stop catches it —
-    // see SizzlingSevensGame.tsx), so the client needs these weights to replicate the same
-    // symbol distribution admin configured, rather than the server drawing the grid itself.
+    // The reel determines its own result client-side (freezes wherever Stop catches it — see
+    // VegasHitsGame.tsx), so the client needs these weights to replicate the same symbol
+    // distribution admin configured, rather than the server drawing the grid itself.
     const symbolWeights = Object.fromEntries(paytableConfig.tiers.map((t) => [t.key, t.frequencyPercent]));
 
     res.json({
-      meta: sizzlingSevensMeta,
+      meta: vegasHitsMeta,
       lineCost: LINE_COST,
       betLevels: BET_LEVELS,
       minBet: MIN_BET,
@@ -50,15 +49,16 @@ router.get(
       paylines: PAYLINES,
       paytable,
       symbolWeights,
-      wild: {
-        symbol: "WILD_2X",
-        multiplierBase: WILD_MULTIPLIER_BASE,
-        purePayout: { 1: PURE_WILD_PAYOUT[1], 2: PURE_WILD_PAYOUT[2], 3: wildRow?.payoutMultiplier ?? PURE_WILD_PAYOUT[3] },
+      wild: { symbol: "WILD", rules: paytableConfig.wildRules ?? DEFAULT_WILD_RULES },
+      bonus: {
+        symbol: "BONUS",
+        triggerCount: BONUS_TRIGGER_COUNT,
+        scatterPayoutMultipleOfBet: SCATTER_PAYOUT_MULTIPLE_OF_BET,
       },
-      bonus: { symbol: "BONUS", triggerCount: BONUS_TRIGGER_COUNT },
       freeGames: {
-        awards: FREE_GAMES_AWARDS.map((a) => ({ freeSpins: a.freeSpins, multiplierPool: a.multiplierPool })),
-        mystery: { spinCounts: MYSTERY_SPIN_COUNTS, multiplierPool: MYSTERY_MULTIPLIER_POOL },
+        spinsPerTrigger: FREE_SPINS_PER_TRIGGER,
+        maxTotalFreeSpins: MAX_TOTAL_FREE_SPINS,
+        chiliMultiplierPool: CHILI_MULTIPLIER_POOL,
       },
     });
   })
@@ -70,24 +70,9 @@ router.post(
   asyncHandler(async (req: Request, res: Response) => {
     const betLevel = Number(req.body?.betLevel);
     const isFreeSpin = Boolean(req.body?.isFreeSpin);
-    const freeGameMultiplierPool: number[] | null =
-      isFreeSpin && Array.isArray(req.body?.freeGameMultiplierPool) ? req.body.freeGameMultiplierPool.map(Number) : null;
-    // The reel freezes wherever the player clicks Stop and reports what's actually showing —
-    // see games/SizzlingSevens/engine.ts's spinWithGrid doc comment for why the server no
-    // longer draws this itself. Falls back to a server-drawn grid if omitted (e.g. an older
-    // client, or a direct API caller).
-    const clientGrid = req.body?.grid;
-    if (clientGrid !== undefined && !isValidGrid(clientGrid)) {
-      res.status(400).json({ error: "grid must be a 3x3 array of valid symbol strings" });
-      return;
-    }
 
     if (!Number.isFinite(betLevel) || !BET_LEVELS.includes(betLevel)) {
       res.status(400).json({ error: `betLevel must be one of ${BET_LEVELS.join(", ")}` });
-      return;
-    }
-    if (isFreeSpin && (!freeGameMultiplierPool || freeGameMultiplierPool.length === 0)) {
-      res.status(400).json({ error: "freeGameMultiplierPool is required for a free spin" });
       return;
     }
 
@@ -108,19 +93,17 @@ router.post(
       return;
     }
 
-    const paytableConfig = await getPaytableConfig(sizzlingSevensMeta.id);
+    const paytableConfig = await getPaytableConfig(vegasHitsMeta.id);
 
     const forcedOutcome = await ForcedOutcome.findOneAndUpdate(
-      { userId: user._id, gameId: sizzlingSevensMeta.id, status: "pending" },
+      { userId: user._id, gameId: vegasHitsMeta.id, status: "pending" },
       { $set: { status: "consumed", consumedAt: new Date() } },
       { sort: { createdAt: 1 }, new: true }
     );
 
     const result: SpinResult = forcedOutcome
       ? spinForTier(betMultiplier, totalBet, forcedOutcome.targetTier, paytableConfig)
-      : clientGrid
-        ? spinWithGrid(clientGrid, betMultiplier, totalBet, paytableConfig, freeGameMultiplierPool)
-        : spin(betMultiplier, totalBet, paytableConfig, freeGameMultiplierPool);
+      : spin(betMultiplier, totalBet, paytableConfig, isFreeSpin);
 
     const stakedAmount = isFreeSpin ? 0 : totalBet;
     user.balance = Math.round((user.balance - stakedAmount + result.winAmount) * 100) / 100;
@@ -128,7 +111,7 @@ router.post(
 
     const spinDoc = await SpinHistory.create({
       userId: user._id,
-      gameId: sizzlingSevensMeta.id,
+      gameId: vegasHitsMeta.id,
       betAmount: stakedAmount,
       winAmount: result.winAmount,
       reelSymbols: result.grid,
@@ -146,7 +129,7 @@ router.post(
     emitSpinEvent({
       userId: String(user._id),
       username: user.username,
-      gameId: sizzlingSevensMeta.id,
+      gameId: vegasHitsMeta.id,
       bet: stakedAmount,
       winAmount: result.winAmount,
       tier: result.tier,

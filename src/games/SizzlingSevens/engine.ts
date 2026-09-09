@@ -80,9 +80,9 @@ export function pureWildPayoutFrom(tiers: TierRow[]): typeof PURE_WILD_PAYOUT {
 
 const DEFAULT_THRESHOLDS: NonNullable<PaytableConfigDTO["amountThresholds"]> = {
   simpleWinMax: 0,
-  bigWinMin: 0.15,
-  megaWinMin: 0.3,
-  jackpotMin: 0.7,
+  bigWinMin: 3,
+  megaWinMin: 6,
+  jackpotMin: 12,
   zeroRespinMin: 0,
   zeroRespinMax: 0,
 };
@@ -91,9 +91,10 @@ const DEFAULT_THRESHOLDS: NonNullable<PaytableConfigDTO["amountThresholds"]> = {
  * "amountThresholds reused as multiplier cutoffs" pattern as 5x Rewind). Since finalWin scales
  * with betMultiplier exactly like totalBet does, this ratio is actually bet-independent — it's
  * really just (basePayout x wildMultiplier) / LINE_COST, i.e. how big a win is relative to the
- * flat 30-coin line cost. With payouts rescaled for the 85% RTP target, this game's ceiling
- * (3-Wild = 28.41) tops out around 0.95x — thresholds below are picked to actually be
- * reachable within that ceiling, unlike a naive copy of a bigger game's cutoffs. */
+ * flat 30-coin line cost. Picked from the actual simulated win distribution at the current
+ * payout table/weights (see services/paytableConfig.ts's DEFAULT_CONFIGS comment) —
+ * bigWinMin≈p97, megaWinMin≈p99.5, jackpotMin≈p99.9 of non-zero wins, so they read as
+ * meaningfully rare without being unreachable. */
 function celebrationTier(finalWin: number, totalBet: number, thresholds: NonNullable<PaytableConfigDTO["amountThresholds"]>): WinTierName | null {
   const multiple = totalBet > 0 ? finalWin / totalBet : 0;
   const tiers: WinTier[] = [
