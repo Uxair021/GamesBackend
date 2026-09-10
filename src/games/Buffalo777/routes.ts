@@ -2,13 +2,19 @@ import { Router, Request, Response } from "express";
 import { User } from "../../models/User";
 import { SpinHistory } from "../../models/SpinHistory";
 import { ForcedOutcome } from "../../models/ForcedOutcome";
+import { SpinReservation } from "../../models/SpinReservation";
 import { requireAuth } from "../../middleware/requireAuth";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { getPaytableConfig } from "../../services/paytableConfig";
 import { emitSpinEvent } from "../../realtime/eventBus";
-import { spin, spinForTier } from "./engine";
+import { spin, spinForTier, SpinResult } from "./engine";
 import { REFERENCE_PAYTABLE, BET_LEVELS, MIN_BET, MAX_BET } from "./config";
 import { buffalo777Meta } from "./meta";
+
+/** How long a reserved (pre-generated) result stays redeemable before it's dropped —
+ * long enough to comfortably cover normal pacing between spins, short enough that a
+ * reservation never sits around stale for long if the player never spins again. */
+const RESERVATION_TTL_MS = 120_000;
 
 const router = Router();
 
@@ -19,6 +25,52 @@ router.get("/config", (_req: Request, res: Response) => {
     betLevels: BET_LEVELS,
   });
 });
+
+router.post(
+  "/spin/reserve",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const betAmount = Number(req.body?.betAmount);
+
+    if (!Number.isFinite(betAmount) || betAmount < MIN_BET || betAmount > MAX_BET) {
+      res.status(400).json({ error: `betAmount must be between ${MIN_BET} and ${MAX_BET}` });
+      return;
+    }
+
+    const [user, paytableConfig] = await Promise.all([
+      User.findById(req.userId),
+      getPaytableConfig(buffalo777Meta.id),
+    ]);
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    // Read-only check — never consumed here. If a forced outcome is pending for this
+    // user, skip reserving entirely so that path stays exactly as it is today, fully
+    // unaware this feature exists; the real /spin call will pick it up as usual.
+    const forcedOutcomePending = await ForcedOutcome.exists({
+      userId: user._id,
+      gameId: buffalo777Meta.id,
+      status: "pending",
+    });
+    if (forcedOutcomePending) {
+      res.json({ reserved: false });
+      return;
+    }
+
+    const result = spin(betAmount, paytableConfig);
+    await SpinReservation.findOneAndUpdate(
+      { userId: user._id, gameId: buffalo777Meta.id },
+      { $set: { betAmount, result, expiresAt: new Date(Date.now() + RESERVATION_TTL_MS) } },
+      { upsert: true }
+    );
+
+    // Never echo the result itself back — the outcome must stay unknown to the client
+    // until an actual spin redeems it.
+    res.json({ reserved: true });
+  })
+);
 
 router.post(
   "/spin",
@@ -52,9 +104,22 @@ router.post(
       { sort: { createdAt: 1 }, new: true }
     );
 
-    const result = forcedOutcome
-      ? spinForTier(betAmount, forcedOutcome.targetTier, paytableConfig)
-      : spin(betAmount, paytableConfig);
+    let result: SpinResult;
+    if (forcedOutcome) {
+      result = spinForTier(betAmount, forcedOutcome.targetTier, paytableConfig);
+    } else {
+      // Redeem a pre-generated result if one is waiting for this exact bet amount —
+      // findOneAndDelete is atomic (single Mongo op), so it's safe under concurrent
+      // requests and can never be redeemed twice. A reservation for a different/stale
+      // bet amount simply won't match and falls through to a fresh live spin below,
+      // identical to today's behavior.
+      const reservation = await SpinReservation.findOneAndDelete({
+        userId: user._id,
+        gameId: buffalo777Meta.id,
+        betAmount,
+      });
+      result = reservation ? (reservation.result as SpinResult) : spin(betAmount, paytableConfig);
+    }
 
     user.balance = Math.round((user.balance - betAmount + result.winAmount) * 100) / 100;
 
