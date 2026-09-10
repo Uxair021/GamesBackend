@@ -69,6 +69,18 @@ import {
   WILD_SYMBOL as LOL_WILD_SYMBOL,
   WILD_ALLOWED_REELS as LOL_WILD_ALLOWED_REELS,
 } from "../games/LifeOfLuxury/config";
+import { rubberDuckMeta } from "../games/RubberDuck/meta";
+import {
+  PAYING_SYMBOLS as RD_PAYING_SYMBOLS,
+  DEFAULT_PAYOUTS as RD_DEFAULT_PAYOUTS,
+  DEFAULT_WEIGHTS as RD_DEFAULT_WEIGHTS,
+  BONUS_SYMBOL as RD_BONUS_SYMBOL,
+  REEL_COUNT as RD_REEL_COUNT,
+  FREE_SPIN_TRIGGER_COUNT as RD_FREE_SPIN_TRIGGER_COUNT,
+  FREE_SPINS_BASE as RD_FREE_SPINS_BASE,
+  FREE_SPINS_RETRIGGER as RD_FREE_SPINS_RETRIGGER,
+  FREE_SPIN_WIN_MULTIPLIER as RD_FREE_SPIN_WIN_MULTIPLIER,
+} from "../games/RubberDuck/config";
 
 const FREQUENCY_TOLERANCE = 0.01;
 const RTP_TOLERANCE_PERCENT = 0.5;
@@ -669,6 +681,47 @@ const DEFAULT_CONFIGS: Record<string, PaytableConfigDTO> = {
     symbolPayouts: LOL_DEFAULT_SYMBOL_PAYOUTS,
     scatterRules: LOL_DEFAULT_SCATTER_RULES,
   },
+  [rubberDuckMeta.id]: {
+    gameId: rubberDuckMeta.id,
+    // Reel-strip weight table — 21 rows (14 payers + BONUS + 6 loss fruits), summing to 100%,
+    // same shape as Life of Luxury/Vegas Hits. Unlike those games every row's payoutMultiplier
+    // IS used directly (see computeRubberDuckRtpPercent below): a flat per-hit value, no
+    // 3/4/5-of-a-kind tiers, since a symbol pays for itself on any single reel with no matching
+    // needed (confirmed with user). Weights solved this session (see config.ts's DEFAULT_WEIGHTS
+    // doc comment) so the 14 payers alone land base RTP at ~78% and the BONUS free-spins feature
+    // (3+ of 5 reels, 15 spins, +10 more on a retrigger mid-round, 3x wins throughout) contributes
+    // the remaining ~7%, for the requested 85% total.
+    targetRtpPercent: 85.0,
+    targetLossPercent: null,
+    freeSpinsGranted: RD_FREE_SPINS_BASE,
+    tiers: (Object.keys(RD_DEFAULT_WEIGHTS) as (keyof typeof RD_DEFAULT_WEIGHTS)[]).map((key) => {
+      const payout = (RD_DEFAULT_PAYOUTS as Record<string, number | undefined>)[key] ?? null;
+      return {
+        key: key as TierKey,
+        frequencyPercent: RD_DEFAULT_WEIGHTS[key],
+        payoutMultiplier: payout,
+        freeSpinPayoutMultiplier: payout !== null ? payout * RD_FREE_SPIN_WIN_MULTIPLIER : null,
+      };
+    }),
+    ruleTierMap: null,
+    celebrationMap: null,
+    // Bet-multiple cutoffs — mirrors games/RubberDuck/engine.ts's DEFAULT_THRESHOLDS exactly (see
+    // that constant's doc comment for why each bucket lands where it does).
+    amountThresholds: {
+      simpleWinMax: 0,
+      bigWinMin: 250,
+      megaWinMin: 3000,
+      jackpotMin: 8000,
+      zeroRespinMin: 0,
+      zeroRespinMax: 0,
+    },
+    specialReelTiers: null,
+    respinRange: null,
+    reelStateConfig: null,
+    wildRules: null,
+    symbolPayouts: null,
+    scatterRules: null,
+  },
 };
 
 function toDTO(doc: {
@@ -1266,7 +1319,50 @@ function computeLifeOfLuxuryRtpPercent(config: PaytableConfigDTO): number {
   return (lineRTP + scatterRTP + freeSpinEV) * 100;
 }
 
+/**
+ * Closed-form, not simulated. Each of the 5 reels independently draws from `tiers` (21 rows: 14
+ * payers + BONUS + 6 loss fruits) — no matching/adjacency requirement, every reel that lands a
+ * paying symbol adds its own payoutMultiplier to the spin's total (confirmed with user: "even a
+ * one symbol hit the win... if more then one then win will be adding all the points"). So:
+ *
+ *   perReelEV = Σ over the 14 payers of (weight_s/100 * payout_s)
+ *   baseRtp   = REEL_COUNT * perReelEV        — reels are independent, so this is exact, not an
+ *                                                 approximation (no rejection sampling involved)
+ *
+ * BONUS contributes no direct cash — 3+ of the 5 reels showing it (probability via the Binomial
+ * tail, exact) triggers FREE_SPINS_BASE free spins, each paying FREE_SPIN_WIN_MULTIPLIER×. A
+ * free spin can itself retrigger (+FREE_SPINS_RETRIGGER more, added to what's left — see
+ * games/RubberDuck/routes.ts) — the expected extra spins from that chain is a first-order
+ * approximation (mirrors Crazy 777's RESPIN extraRtp term): with `pTrig` this small by
+ * construction (rare BONUS weight), higher-order retrigger-of-a-retrigger chains are negligible.
+ */
+function computeRubberDuckRtpPercent(config: PaytableConfigDTO): number {
+  const weightOf = (symbol: string): number => config.tiers.find((t) => t.key === symbol)?.frequencyPercent ?? 0;
+  const payoutOf = (symbol: string): number =>
+    config.tiers.find((t) => t.key === symbol)?.payoutMultiplier ??
+    (RD_DEFAULT_PAYOUTS as Record<string, number | undefined>)[symbol] ??
+    0;
+
+  const perReelEV = RD_PAYING_SYMBOLS.reduce((sum, symbol) => sum + (weightOf(symbol) / 100) * payoutOf(symbol), 0);
+  const baseRtp = RD_REEL_COUNT * perReelEV;
+
+  const pBonus = weightOf(RD_BONUS_SYMBOL) / 100;
+  let pTrig = 0;
+  for (let k = RD_FREE_SPIN_TRIGGER_COUNT; k <= RD_REEL_COUNT; k++) {
+    pTrig += nChooseK(RD_REEL_COUNT, k) * Math.pow(pBonus, k) * Math.pow(1 - pBonus, RD_REEL_COUNT - k);
+  }
+
+  const avgFreeSpins = RD_FREE_SPINS_BASE * (1 + pTrig * RD_FREE_SPINS_RETRIGGER);
+  const freeSpinRtp = pTrig * avgFreeSpins * (RD_FREE_SPIN_WIN_MULTIPLIER * baseRtp);
+
+  return (baseRtp + freeSpinRtp) * 100;
+}
+
 export function computeRtpPercent(config: PaytableConfigDTO): number {
+  if (config.gameId === rubberDuckMeta.id) {
+    return computeRubberDuckRtpPercent(config);
+  }
+
   if (config.gameId === fiveXRewindMeta.id) {
     return computeFiveXRewindRtpPercent(config);
   }

@@ -115,6 +115,26 @@ const VALID_TIER_KEYS: TierKey[] = [
   "SILVER_BAR",
   "BRONZE_BAR",
   "COIN",
+  // Rubber Duck
+  "TRIPLE_7",
+  "DOUBLE_7",
+  "SEVEN",
+  "GUN",
+  "TOOL",
+  "SHAMPOO",
+  "TOWEL",
+  "BRUSH",
+  "SAFEGUARD",
+  "CAP",
+  "POT",
+  "SOAP",
+  "SPONGE",
+  "AVOCADO",
+  "BANANA",
+  "COCONUT",
+  "GRAPES",
+  "LEMON",
+  "STRAWBERRY",
 ];
 
 export async function getPaytable(req: Request, res: Response): Promise<void> {

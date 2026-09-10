@@ -31,7 +31,12 @@ router.post(
       return;
     }
 
-    const user = await User.findById(req.userId);
+    // getPaytableConfig doesn't depend on the user doc, so fetch it in parallel instead of
+    // after — shaves a full DB round-trip off the critical path of every spin.
+    const [user, paytableConfig] = await Promise.all([
+      User.findById(req.userId),
+      getPaytableConfig(buffalo777Meta.id),
+    ]);
     if (!user) {
       res.status(404).json({ error: "User not found" });
       return;
@@ -40,8 +45,6 @@ router.post(
       res.status(400).json({ error: "Insufficient balance" });
       return;
     }
-
-    const paytableConfig = await getPaytableConfig(buffalo777Meta.id);
 
     const forcedOutcome = await ForcedOutcome.findOneAndUpdate(
       { userId: user._id, gameId: buffalo777Meta.id, status: "pending" },
@@ -54,19 +57,24 @@ router.post(
       : spin(betAmount, paytableConfig);
 
     user.balance = Math.round((user.balance - betAmount + result.winAmount) * 100) / 100;
-    await user.save();
 
-    const spinDoc = await SpinHistory.create({
-      userId: user._id,
-      gameId: buffalo777Meta.id,
-      betAmount,
-      winAmount: result.winAmount,
-      reelSymbols: result.reels.map((r) => r.symbols),
-      balanceAfter: user.balance,
-      tier: result.tier,
-      forced: Boolean(forcedOutcome),
-      forcedOutcomeId: forcedOutcome?._id ?? null,
-    });
+    // Both are independent writes — SpinHistory's balanceAfter reads the balance already
+    // computed above in memory, not from user.save()'s result — so run them together
+    // instead of waiting on the user save before starting the history write.
+    const [, spinDoc] = await Promise.all([
+      user.save(),
+      SpinHistory.create({
+        userId: user._id,
+        gameId: buffalo777Meta.id,
+        betAmount,
+        winAmount: result.winAmount,
+        reelSymbols: result.reels.map((r) => r.symbols),
+        balanceAfter: user.balance,
+        tier: result.tier,
+        forced: Boolean(forcedOutcome),
+        forcedOutcomeId: forcedOutcome?._id ?? null,
+      }),
+    ]);
 
     if (forcedOutcome) {
       forcedOutcome.consumedSpinId = spinDoc._id;

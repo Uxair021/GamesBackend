@@ -29,6 +29,11 @@ export function createApp(): Express {
         callback(new Error("Not allowed by CORS"));
       },
       credentials: true,
+      // Lets the browser cache the preflight OPTIONS response instead of re-sending it
+      // before every single authenticated request (e.g. every spin) — without this the
+      // default cache window is only a few seconds, so cross-origin prod traffic (frontend
+      // and backend on different domains) pays a full extra round-trip almost every time.
+      maxAge: 86400,
     })
   );
   app.use(express.json());

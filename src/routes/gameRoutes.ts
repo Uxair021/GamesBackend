@@ -21,6 +21,8 @@ import vegasHitsRoutes from "../games/VegasHits/routes";
 import { vegasHitsMeta } from "../games/VegasHits/meta";
 import lifeOfLuxuryRoutes from "../games/LifeOfLuxury/routes";
 import { lifeOfLuxuryMeta } from "../games/LifeOfLuxury/meta";
+import rubberDuckRoutes from "../games/RubberDuck/routes";
+import { rubberDuckMeta } from "../games/RubberDuck/meta";
 
 // Add each new game's meta + router here as it's built.
 const games = [
@@ -35,6 +37,7 @@ const games = [
   { meta: mega10xPayMeta, router: mega10xPayRoutes },
   { meta: vegasHitsMeta, router: vegasHitsRoutes },
   { meta: lifeOfLuxuryMeta, router: lifeOfLuxuryRoutes },
+  { meta: rubberDuckMeta, router: rubberDuckRoutes },
 ];
 
 const router = Router();

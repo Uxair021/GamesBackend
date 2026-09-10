@@ -141,7 +141,32 @@ export type TierKey =
   | "GOLD_BAR"
   | "SILVER_BAR"
   | "BRONZE_BAR"
-  | "COIN";
+  | "COIN"
+  // Rubber Duck only — one row per reel symbol (stored in `tiers`), same "reel-strip weight
+  // table" shape as Life of Luxury/Vegas Hits — see games/RubberDuck/config.ts. Every row's
+  // payoutMultiplier IS used directly here (unlike Life of Luxury): a single flat value per
+  // symbol, no 3/4/5-of-a-kind tiers, since a symbol pays for itself the instant it lands on
+  // any of the 5 reels, no matching required. Reuses "BOAT" and "BONUS" above (both already
+  // exist from other games, safe to share — see this union's own doc comment).
+  | "TRIPLE_7"
+  | "DOUBLE_7"
+  | "SEVEN"
+  | "GUN"
+  | "TOOL"
+  | "SHAMPOO"
+  | "TOWEL"
+  | "BRUSH"
+  | "SAFEGUARD"
+  | "CAP"
+  | "POT"
+  | "SOAP"
+  | "SPONGE"
+  | "AVOCADO"
+  | "BANANA"
+  | "COCONUT"
+  | "GRAPES"
+  | "LEMON"
+  | "STRAWBERRY";
 
 export interface TierRow {
   key: TierKey;
@@ -326,6 +351,25 @@ const tierRowSchema = new Schema<TierRow>(
         "SILVER_BAR",
         "BRONZE_BAR",
         "COIN",
+        "TRIPLE_7",
+        "DOUBLE_7",
+        "SEVEN",
+        "GUN",
+        "TOOL",
+        "SHAMPOO",
+        "TOWEL",
+        "BRUSH",
+        "SAFEGUARD",
+        "CAP",
+        "POT",
+        "SOAP",
+        "SPONGE",
+        "AVOCADO",
+        "BANANA",
+        "COCONUT",
+        "GRAPES",
+        "LEMON",
+        "STRAWBERRY",
       ],
       required: true,
     },
