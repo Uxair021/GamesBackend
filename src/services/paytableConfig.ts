@@ -2,7 +2,6 @@ import { PaytableConfig, TierRow, TierKey } from "../models/PaytableConfig";
 import { WinTierName } from "../gameTiers";
 import { shamrockSpinMeta } from "../games/ShamrockSpin/meta";
 import { cashMachineMeta } from "../games/CashMachine/meta";
-import { buffalo777Meta } from "../games/Buffalo777/meta";
 import { crazy777Meta } from "../games/Crazy777/meta";
 import { fiveXRewindMeta } from "../games/FiveXRewind/meta";
 import {
@@ -196,54 +195,6 @@ const DEFAULT_CONFIGS: Record<string, PaytableConfigDTO> = {
       zeroRespinMin: 1,
       zeroRespinMax: 20,
     },
-    specialReelTiers: null,
-    respinRange: null,
-    reelStateConfig: null,
-    wildRules: null,
-    symbolPayouts: null,
-    scatterRules: null,
-  },
-  [buffalo777Meta.id]: {
-    gameId: buffalo777Meta.id,
-    // No "old engine" to reproduce here (brand new game) — frequencies chosen fresh to land
-    // around a realistic ~93% RTP, decreasing roughly geometrically as payout rises. Every
-    // tier below maps to exactly one symbol/combo (see engine.ts) so these payouts are the
-    // *exact* per-spin amounts, not estimates — matches the reference paytable precisely.
-    targetRtpPercent: 92.98,
-    targetLossPercent: null,
-    freeSpinsGranted: null,
-    tiers: [
-      { key: "loss", frequencyPercent: 72.6187, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "ten", frequencyPercent: 10.0904, payoutMultiplier: 1, freeSpinPayoutMultiplier: null },
-      { key: "jack", frequencyPercent: 6.7269, payoutMultiplier: 2, freeSpinPayoutMultiplier: null },
-      { key: "queen", frequencyPercent: 4.4846, payoutMultiplier: 3, freeSpinPayoutMultiplier: null },
-      { key: "king", frequencyPercent: 2.8029, payoutMultiplier: 4, freeSpinPayoutMultiplier: null },
-      { key: "ace", frequencyPercent: 1.5696, payoutMultiplier: 5, freeSpinPayoutMultiplier: null },
-      { key: "bull", frequencyPercent: 0.7848, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
-      { key: "anyBar", frequencyPercent: 0.6166, payoutMultiplier: 15, freeSpinPayoutMultiplier: null },
-      { key: "singleBar", frequencyPercent: 0.2018, payoutMultiplier: 50, freeSpinPayoutMultiplier: null },
-      { key: "doubleBar", frequencyPercent: 0.0729, payoutMultiplier: 75, freeSpinPayoutMultiplier: null },
-      { key: "tripleBar", frequencyPercent: 0.0247, payoutMultiplier: 100, freeSpinPayoutMultiplier: null },
-      { key: "moneyBag", frequencyPercent: 0.005, payoutMultiplier: 250, freeSpinPayoutMultiplier: null },
-      { key: "coin", frequencyPercent: 0.0011, payoutMultiplier: 500, freeSpinPayoutMultiplier: null },
-    ],
-    ruleTierMap: null,
-    celebrationMap: {
-      loss: null,
-      ten: null,
-      jack: null,
-      queen: null,
-      king: null,
-      ace: null,
-      bull: null,
-      anyBar: null,
-      singleBar: "BIG WIN",
-      doubleBar: "BIG WIN",
-      tripleBar: "MEGA WIN",
-      moneyBag: "MEGA WIN",
-      coin: "JACKPOT",
-    },
-    amountThresholds: null,
     specialReelTiers: null,
     respinRange: null,
     reelStateConfig: null,
