@@ -3,8 +3,6 @@ import shamrockSpinRoutes from "../games/ShamrockSpin/routes";
 import { shamrockSpinMeta } from "../games/ShamrockSpin/meta";
 import cashMachineRoutes from "../games/CashMachine/routes";
 import { cashMachineMeta } from "../games/CashMachine/meta";
-import buffalo777Routes from "../games/Buffalo777/routes";
-import { buffalo777Meta } from "../games/Buffalo777/meta";
 import crazy777Routes from "../games/Crazy777/routes";
 import { crazy777Meta } from "../games/Crazy777/meta";
 import fiveXRewindRoutes from "../games/FiveXRewind/routes";
@@ -28,7 +26,6 @@ import { rubberDuckMeta } from "../games/RubberDuck/meta";
 const games = [
   { meta: shamrockSpinMeta, router: shamrockSpinRoutes },
   { meta: cashMachineMeta, router: cashMachineRoutes },
-  { meta: buffalo777Meta, router: buffalo777Routes },
   { meta: crazy777Meta, router: crazy777Routes },
   { meta: fiveXRewindMeta, router: fiveXRewindRoutes },
   { meta: sizzlingSevensMeta, router: sizzlingSevensRoutes },
