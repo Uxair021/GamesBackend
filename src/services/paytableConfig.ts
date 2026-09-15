@@ -82,6 +82,8 @@ import {
 } from "../games/RubberDuck/config";
 import { topDollarMeta } from "../games/TopDollar/meta";
 import { OFFER_DRAW_COUNT_WEIGHTS, MIN_BET as TD_MIN_BET } from "../games/TopDollar/config";
+import { gemsDeluxeMeta } from "../games/GemsDeluxe/meta";
+import { OFFER_DRAW_COUNT_WEIGHTS as GD_OFFER_DRAW_COUNT_WEIGHTS, MIN_BET as GD_MIN_BET } from "../games/GemsDeluxe/config";
 
 const FREQUENCY_TOLERANCE = 0.01;
 const RTP_TOLERANCE_PERCENT = 0.5;
@@ -722,6 +724,44 @@ const DEFAULT_CONFIGS: Record<string, PaytableConfigDTO> = {
     // weighted draws from this table per Take-It/Try-Again offer. $1000 is deliberately very
     // rare (confirmed with user: "the rarest") — pool mean ≈18.9, and each offer averages
     // ~1.8 draws (see config.ts's OFFER_DRAW_COUNT_WEIGHTS), for an average offer of ~$34.
+    specialReelTiers: [
+      { key: "dollarPoolFive", frequencyPercent: 40, payoutMultiplier: 5, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolTen", frequencyPercent: 30, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolTwenty", frequencyPercent: 15, payoutMultiplier: 20, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolFifty", frequencyPercent: 10, payoutMultiplier: 50, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolHundred", frequencyPercent: 4.9, payoutMultiplier: 100, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolThousand", frequencyPercent: 0.1, payoutMultiplier: 1000, freeSpinPayoutMultiplier: null },
+    ],
+    respinRange: null,
+    reelStateConfig: null,
+    wildRules: null,
+    symbolPayouts: null,
+    scatterRules: null,
+  },
+  // Gems Deluxe is a duplicate of Top Dollar under a new name/id — identical mechanics, tiers,
+  // and bonus pool (see games/GemsDeluxe/engine.ts, a straight copy of games/TopDollar/engine.ts).
+  [gemsDeluxeMeta.id]: {
+    gameId: gemsDeluxeMeta.id,
+    targetRtpPercent: 90.24,
+    targetLossPercent: null,
+    freeSpinsGranted: null,
+    tiers: [
+      { key: "loss", frequencyPercent: 74.155, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
+      { key: "seven", frequencyPercent: 0.1, payoutMultiplier: 100, freeSpinPayoutMultiplier: null },
+      { key: "tripleBar", frequencyPercent: 0.135, payoutMultiplier: 75, freeSpinPayoutMultiplier: null },
+      { key: "doubleBar", frequencyPercent: 0.2, payoutMultiplier: 50, freeSpinPayoutMultiplier: null },
+      { key: "singleBar", frequencyPercent: 0.41, payoutMultiplier: 25, freeSpinPayoutMultiplier: null },
+      { key: "anyBar", frequencyPercent: 1.0, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
+      { key: "diamondThree", frequencyPercent: 0.5, payoutMultiplier: 20, freeSpinPayoutMultiplier: null },
+      { key: "diamondTwo", frequencyPercent: 1.0, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
+      { key: "diamondOne", frequencyPercent: 2.5, payoutMultiplier: 4, freeSpinPayoutMultiplier: null },
+      // Landing this rolls DOLLAR onto reel 3 and hands off to the bonus round instead of
+      // paying a line amount directly (payoutMultiplier unused — see specialReelTiers below).
+      { key: "dollarBonus", frequencyPercent: 20, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
+    ],
+    ruleTierMap: null,
+    celebrationMap: null,
+    amountThresholds: null,
     specialReelTiers: [
       { key: "dollarPoolFive", frequencyPercent: 40, payoutMultiplier: 5, freeSpinPayoutMultiplier: null },
       { key: "dollarPoolTen", frequencyPercent: 30, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
@@ -1408,6 +1448,31 @@ function computeTopDollarRtpPercent(config: PaytableConfigDTO): number {
   return (lineEV + bonusRtp) * 100;
 }
 
+/** Gems Deluxe only — a duplicate of Top Dollar under a new name/id, identical mechanics, so
+ * this mirrors computeTopDollarRtpPercent above exactly (see its doc comment for the
+ * derivation), just reading from GemsDeluxe's own OFFER_DRAW_COUNT_WEIGHTS/MIN_BET. */
+function computeGemsDeluxeRtpPercent(config: PaytableConfigDTO): number {
+  const lineEV = config.tiers.reduce(
+    (sum, t) => sum + (t.payoutMultiplier !== null ? (t.frequencyPercent / 100) * t.payoutMultiplier : 0),
+    0
+  );
+
+  const bonusTier = config.tiers.find((t) => t.key === "dollarBonus");
+  const bonusProb = (bonusTier?.frequencyPercent ?? 0) / 100;
+
+  const pool = config.specialReelTiers ?? [];
+  const poolTotal = pool.reduce((sum, t) => sum + t.frequencyPercent, 0);
+  const poolMean = poolTotal > 0 ? pool.reduce((sum, t) => sum + (t.frequencyPercent / poolTotal) * (t.payoutMultiplier ?? 0), 0) : 0;
+  const drawCountTotal = GD_OFFER_DRAW_COUNT_WEIGHTS.reduce((sum, w) => sum + w.weight, 0);
+  const eDrawCount = drawCountTotal > 0 ? GD_OFFER_DRAW_COUNT_WEIGHTS.reduce((sum, w) => sum + (w.weight / drawCountTotal) * w.count, 0) : 0;
+  const eOffer = eDrawCount * poolMean;
+
+  const referenceBet = GD_MIN_BET;
+  const bonusRtp = referenceBet > 0 ? (bonusProb * eOffer) / referenceBet : 0;
+
+  return (lineEV + bonusRtp) * 100;
+}
+
 export function computeRtpPercent(config: PaytableConfigDTO): number {
   if (config.gameId === rubberDuckMeta.id) {
     return computeRubberDuckRtpPercent(config);
@@ -1415,6 +1480,10 @@ export function computeRtpPercent(config: PaytableConfigDTO): number {
 
   if (config.gameId === topDollarMeta.id) {
     return computeTopDollarRtpPercent(config);
+  }
+
+  if (config.gameId === gemsDeluxeMeta.id) {
+    return computeGemsDeluxeRtpPercent(config);
   }
 
   if (config.gameId === fiveXRewindMeta.id) {
