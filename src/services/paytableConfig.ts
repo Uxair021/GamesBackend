@@ -80,6 +80,10 @@ import {
   FREE_SPINS_RETRIGGER as RD_FREE_SPINS_RETRIGGER,
   FREE_SPIN_WIN_MULTIPLIER as RD_FREE_SPIN_WIN_MULTIPLIER,
 } from "../games/RubberDuck/config";
+import { topDollarMeta } from "../games/TopDollar/meta";
+import { OFFER_DRAW_COUNT_WEIGHTS, MIN_BET as TD_MIN_BET } from "../games/TopDollar/config";
+import { gemsDeluxeMeta } from "../games/GemsDeluxe/meta";
+import { OFFER_DRAW_COUNT_WEIGHTS as GD_OFFER_DRAW_COUNT_WEIGHTS, MIN_BET as GD_MIN_BET } from "../games/GemsDeluxe/config";
 
 const FREQUENCY_TOLERANCE = 0.01;
 const RTP_TOLERANCE_PERCENT = 0.5;
@@ -667,6 +671,105 @@ const DEFAULT_CONFIGS: Record<string, PaytableConfigDTO> = {
       zeroRespinMax: 0,
     },
     specialReelTiers: null,
+    respinRange: null,
+    reelStateConfig: null,
+    wildRules: null,
+    symbolPayouts: null,
+    scatterRules: null,
+  },
+  [topDollarMeta.id]: {
+    gameId: topDollarMeta.id,
+    // Outcome-first (one row per named win condition, not per reel symbol) — same "roll the
+    // tier, then build 3 reels to match" shape as Buffalo 777/Crazy 777 (see
+    // games/TopDollar/engine.ts). A reel-strip-independent weighting (each reel rolls its own
+    // symbol) was tried first and rejected: Diamond pays for just 1 occurrence, so no weighting
+    // across only 6 always-landing symbols avoided a many-hundred-percent RTP (confirmed by
+    // exact enumeration this session — 914% on the first pass). Losses need no blank/filler
+    // symbol here either — one of the 3 reels lands physically between two symbols instead of
+    // cleanly on one (a "half-stop", see games/TopDollar/pixi/Reel.ts's spinTo), which alone
+    // guarantees no tier can accidentally read as a win regardless of what the other two reels
+    // show. Solved (see this session's scratch calc) to land ~81-90% RTP across the 4 bet
+    // levels despite the bonus round's flat (non-bet-scaled) payouts pulling the effective RTP
+    // higher at the min bet than the max — targetRtpPercent below is the value at MIN_BET.
+    //
+    // TEMPORARY (per user request, "for now"): dollarBonus bumped way up from its balanced
+    // 2.9% to 20% purely so the bonus round is easy to trigger while testing — this pushes
+    // real RTP well over 100% (roughly 148% at bet 10). Dial dollarBonus back down (and loss
+    // back up to keep the tiers summing to 100) before this goes anywhere near real money.
+    targetRtpPercent: 90.24,
+    targetLossPercent: null,
+    freeSpinsGranted: null,
+    tiers: [
+      { key: "loss", frequencyPercent: 74.155, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
+      { key: "seven", frequencyPercent: 0.1, payoutMultiplier: 100, freeSpinPayoutMultiplier: null },
+      { key: "tripleBar", frequencyPercent: 0.135, payoutMultiplier: 75, freeSpinPayoutMultiplier: null },
+      { key: "doubleBar", frequencyPercent: 0.2, payoutMultiplier: 50, freeSpinPayoutMultiplier: null },
+      { key: "singleBar", frequencyPercent: 0.41, payoutMultiplier: 25, freeSpinPayoutMultiplier: null },
+      { key: "anyBar", frequencyPercent: 1.0, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
+      { key: "diamondThree", frequencyPercent: 0.5, payoutMultiplier: 20, freeSpinPayoutMultiplier: null },
+      { key: "diamondTwo", frequencyPercent: 1.0, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
+      { key: "diamondOne", frequencyPercent: 2.5, payoutMultiplier: 4, freeSpinPayoutMultiplier: null },
+      // Landing this rolls DOLLAR onto reel 3 and hands off to the bonus round instead of
+      // paying a line amount directly (payoutMultiplier unused — see specialReelTiers below).
+      { key: "dollarBonus", frequencyPercent: 20, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
+    ],
+    ruleTierMap: null,
+    celebrationMap: null,
+    // Confirmed with user: no JACKPOT/MEGA WIN/BIG WIN celebration overlay for this game at
+    // all, ever — every win (base or bonus) is just a plain credited amount.
+    amountThresholds: null,
+    // The bonus round's note-bundle value pool — a second, fully independent weighted table
+    // (see models/PaytableConfig.ts's specialReelTiers doc comment on this game). Each row's
+    // payoutMultiplier is a FLAT dollar amount, not a bet multiple — engine.ts sums 1-3
+    // weighted draws from this table per Take-It/Try-Again offer. $1000 is deliberately very
+    // rare (confirmed with user: "the rarest") — pool mean ≈18.9, and each offer averages
+    // ~1.8 draws (see config.ts's OFFER_DRAW_COUNT_WEIGHTS), for an average offer of ~$34.
+    specialReelTiers: [
+      { key: "dollarPoolFive", frequencyPercent: 40, payoutMultiplier: 5, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolTen", frequencyPercent: 30, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolTwenty", frequencyPercent: 15, payoutMultiplier: 20, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolFifty", frequencyPercent: 10, payoutMultiplier: 50, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolHundred", frequencyPercent: 4.9, payoutMultiplier: 100, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolThousand", frequencyPercent: 0.1, payoutMultiplier: 1000, freeSpinPayoutMultiplier: null },
+    ],
+    respinRange: null,
+    reelStateConfig: null,
+    wildRules: null,
+    symbolPayouts: null,
+    scatterRules: null,
+  },
+  // Gems Deluxe is a duplicate of Top Dollar under a new name/id — identical mechanics, tiers,
+  // and bonus pool (see games/GemsDeluxe/engine.ts, a straight copy of games/TopDollar/engine.ts).
+  [gemsDeluxeMeta.id]: {
+    gameId: gemsDeluxeMeta.id,
+    targetRtpPercent: 90.24,
+    targetLossPercent: null,
+    freeSpinsGranted: null,
+    tiers: [
+      { key: "loss", frequencyPercent: 74.155, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
+      { key: "seven", frequencyPercent: 0.1, payoutMultiplier: 100, freeSpinPayoutMultiplier: null },
+      { key: "tripleBar", frequencyPercent: 0.135, payoutMultiplier: 75, freeSpinPayoutMultiplier: null },
+      { key: "doubleBar", frequencyPercent: 0.2, payoutMultiplier: 50, freeSpinPayoutMultiplier: null },
+      { key: "singleBar", frequencyPercent: 0.41, payoutMultiplier: 25, freeSpinPayoutMultiplier: null },
+      { key: "anyBar", frequencyPercent: 1.0, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
+      { key: "diamondThree", frequencyPercent: 0.5, payoutMultiplier: 20, freeSpinPayoutMultiplier: null },
+      { key: "diamondTwo", frequencyPercent: 1.0, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
+      { key: "diamondOne", frequencyPercent: 2.5, payoutMultiplier: 4, freeSpinPayoutMultiplier: null },
+      // Landing this rolls DOLLAR onto reel 3 and hands off to the bonus round instead of
+      // paying a line amount directly (payoutMultiplier unused — see specialReelTiers below).
+      { key: "dollarBonus", frequencyPercent: 20, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
+    ],
+    ruleTierMap: null,
+    celebrationMap: null,
+    amountThresholds: null,
+    specialReelTiers: [
+      { key: "dollarPoolFive", frequencyPercent: 40, payoutMultiplier: 5, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolTen", frequencyPercent: 30, payoutMultiplier: 10, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolTwenty", frequencyPercent: 15, payoutMultiplier: 20, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolFifty", frequencyPercent: 10, payoutMultiplier: 50, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolHundred", frequencyPercent: 4.9, payoutMultiplier: 100, freeSpinPayoutMultiplier: null },
+      { key: "dollarPoolThousand", frequencyPercent: 0.1, payoutMultiplier: 1000, freeSpinPayoutMultiplier: null },
+    ],
     respinRange: null,
     reelStateConfig: null,
     wildRules: null,
@@ -1309,9 +1412,78 @@ function computeRubberDuckRtpPercent(config: PaytableConfigDTO): number {
   return (baseRtp + freeSpinRtp) * 100;
 }
 
+/**
+ * Outcome-first (same "roll the tier, then build reels to match" shape as Buffalo 777/Crazy
+ * 777 — see games/TopDollar/engine.ts), so the base-line part is just the plain generic
+ * formula every such game already uses: Σ(frequency% × payoutMultiplier). The bonus round's
+ * contribution needs its own term because it isn't a bet-multiple: each of the 4 sequential
+ * offers is an i.i.d. draw from the same pool (sum of 1-3 weighted draws from
+ * `specialReelTiers` — see engine.ts's generateOffer), so E[whichever offer the player ends up
+ * accepting] always equals E[a single offer] regardless of their own Take-It/Try-Again
+ * strategy (a fixed-horizon optional-stopping argument — stopping earlier or later can't bias
+ * the expectation when every draw comes from the same distribution). That expectation is a
+ * FLAT dollar amount (confirmed with user, unlike every other number in this game), so —
+ * unlike every other game here — this game's realized RTP genuinely varies by bet size; this
+ * function reports it at MIN_BET (the reference `targetRtpPercent` is meant to track).
+ */
+function computeTopDollarRtpPercent(config: PaytableConfigDTO): number {
+  const lineEV = config.tiers.reduce(
+    (sum, t) => sum + (t.payoutMultiplier !== null ? (t.frequencyPercent / 100) * t.payoutMultiplier : 0),
+    0
+  );
+
+  const bonusTier = config.tiers.find((t) => t.key === "dollarBonus");
+  const bonusProb = (bonusTier?.frequencyPercent ?? 0) / 100;
+
+  const pool = config.specialReelTiers ?? [];
+  const poolTotal = pool.reduce((sum, t) => sum + t.frequencyPercent, 0);
+  const poolMean = poolTotal > 0 ? pool.reduce((sum, t) => sum + (t.frequencyPercent / poolTotal) * (t.payoutMultiplier ?? 0), 0) : 0;
+  const drawCountTotal = OFFER_DRAW_COUNT_WEIGHTS.reduce((sum, w) => sum + w.weight, 0);
+  const eDrawCount = drawCountTotal > 0 ? OFFER_DRAW_COUNT_WEIGHTS.reduce((sum, w) => sum + (w.weight / drawCountTotal) * w.count, 0) : 0;
+  const eOffer = eDrawCount * poolMean;
+
+  const referenceBet = TD_MIN_BET;
+  const bonusRtp = referenceBet > 0 ? (bonusProb * eOffer) / referenceBet : 0;
+
+  return (lineEV + bonusRtp) * 100;
+}
+
+/** Gems Deluxe only — a duplicate of Top Dollar under a new name/id, identical mechanics, so
+ * this mirrors computeTopDollarRtpPercent above exactly (see its doc comment for the
+ * derivation), just reading from GemsDeluxe's own OFFER_DRAW_COUNT_WEIGHTS/MIN_BET. */
+function computeGemsDeluxeRtpPercent(config: PaytableConfigDTO): number {
+  const lineEV = config.tiers.reduce(
+    (sum, t) => sum + (t.payoutMultiplier !== null ? (t.frequencyPercent / 100) * t.payoutMultiplier : 0),
+    0
+  );
+
+  const bonusTier = config.tiers.find((t) => t.key === "dollarBonus");
+  const bonusProb = (bonusTier?.frequencyPercent ?? 0) / 100;
+
+  const pool = config.specialReelTiers ?? [];
+  const poolTotal = pool.reduce((sum, t) => sum + t.frequencyPercent, 0);
+  const poolMean = poolTotal > 0 ? pool.reduce((sum, t) => sum + (t.frequencyPercent / poolTotal) * (t.payoutMultiplier ?? 0), 0) : 0;
+  const drawCountTotal = GD_OFFER_DRAW_COUNT_WEIGHTS.reduce((sum, w) => sum + w.weight, 0);
+  const eDrawCount = drawCountTotal > 0 ? GD_OFFER_DRAW_COUNT_WEIGHTS.reduce((sum, w) => sum + (w.weight / drawCountTotal) * w.count, 0) : 0;
+  const eOffer = eDrawCount * poolMean;
+
+  const referenceBet = GD_MIN_BET;
+  const bonusRtp = referenceBet > 0 ? (bonusProb * eOffer) / referenceBet : 0;
+
+  return (lineEV + bonusRtp) * 100;
+}
+
 export function computeRtpPercent(config: PaytableConfigDTO): number {
   if (config.gameId === rubberDuckMeta.id) {
     return computeRubberDuckRtpPercent(config);
+  }
+
+  if (config.gameId === topDollarMeta.id) {
+    return computeTopDollarRtpPercent(config);
+  }
+
+  if (config.gameId === gemsDeluxeMeta.id) {
+    return computeGemsDeluxeRtpPercent(config);
   }
 
   if (config.gameId === fiveXRewindMeta.id) {
