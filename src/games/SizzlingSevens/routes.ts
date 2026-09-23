@@ -1,169 +1,85 @@
 import { Router, Request, Response } from "express";
-import { User } from "../../models/User";
 import { SpinHistory } from "../../models/SpinHistory";
-import { ForcedOutcome } from "../../models/ForcedOutcome";
+import { User } from "../../models/User";
 import { requireAuth } from "../../middleware/requireAuth";
 import { asyncHandler } from "../../utils/asyncHandler";
-import { getPaytableConfig } from "../../services/paytableConfig";
 import { emitSpinEvent } from "../../realtime/eventBus";
-import { spin, spinForTier, spinWithGrid, isValidGrid, SpinResult } from "./engine";
 import { sizzlingSevensMeta } from "./meta";
-import {
-  LINE_COST,
-  BET_LEVELS,
-  MIN_BET,
-  MAX_BET,
-  PAYLINES,
-  DEFAULT_PAYTABLE,
-  WILD_MULTIPLIER_BASE,
-  PURE_WILD_PAYOUT,
-  BONUS_TRIGGER_COUNT,
-  FREE_GAMES_AWARDS,
-  MYSTERY_SPIN_COUNTS,
-  MYSTERY_MULTIPLIER_POOL,
-} from "./config";
+
+const WIN_TIERS = ["BIG WIN", "MEGA WIN", "JACKPOT"] as const;
+type WinTierName = (typeof WIN_TIERS)[number];
 
 const router = Router();
 
-router.get(
-  "/config",
-  asyncHandler(async (_req: Request, res: Response) => {
-    const paytableConfig = await getPaytableConfig(sizzlingSevensMeta.id);
-
-    const paytable = Object.keys(DEFAULT_PAYTABLE).map((key) => {
-      const row = paytableConfig.tiers.find((t) => t.key === key);
-      return { symbol: key, payout: row?.payoutMultiplier ?? DEFAULT_PAYTABLE[key as keyof typeof DEFAULT_PAYTABLE] };
-    });
-    const wildRow = paytableConfig.tiers.find((t) => t.key === "WILD_2X");
-    // The reel now determines its own result client-side (freezes wherever Stop catches it —
-    // see SizzlingSevensGame.tsx), so the client needs these weights to replicate the same
-    // symbol distribution admin configured, rather than the server drawing the grid itself.
-    const symbolWeights = Object.fromEntries(paytableConfig.tiers.map((t) => [t.key, t.frequencyPercent]));
-
-    res.json({
-      meta: sizzlingSevensMeta,
-      lineCost: LINE_COST,
-      betLevels: BET_LEVELS,
-      minBet: MIN_BET,
-      maxBet: MAX_BET,
-      paylineCount: PAYLINES.length,
-      paylines: PAYLINES,
-      paytable,
-      symbolWeights,
-      wild: {
-        symbol: "WILD_2X",
-        multiplierBase: WILD_MULTIPLIER_BASE,
-        purePayout: { 1: PURE_WILD_PAYOUT[1], 2: PURE_WILD_PAYOUT[2], 3: wildRow?.payoutMultiplier ?? PURE_WILD_PAYOUT[3] },
-      },
-      bonus: { symbol: "BONUS", triggerCount: BONUS_TRIGGER_COUNT },
-      freeGames: {
-        awards: FREE_GAMES_AWARDS.map((a) => ({ freeSpins: a.freeSpins, multiplierPool: a.multiplierPool })),
-        mystery: { spinCounts: MYSTERY_SPIN_COUNTS, multiplierPool: MYSTERY_MULTIPLIER_POOL },
-      },
-    });
-  })
-);
-
+/**
+ * Sizzling 7s is a fully offline, client-side test game — RNG, paytable, Wild/Bonus/Free Games
+ * math, and balance are all computed entirely in the browser (see
+ * frontEnd/src/games/SizzlingSevens/{config,winCalc,api}.ts), nothing here decides or verifies
+ * the outcome. This is a pure write-only logging sink: the client reports what already
+ * happened, purely for record-keeping alongside every other game's SpinHistory, and the call is
+ * fire-and-forget on the frontend — nothing in gameplay depends on it succeeding.
+ */
 router.post(
-  "/spin",
+  "/spin-log",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    const betLevel = Number(req.body?.betLevel);
-    const isFreeSpin = Boolean(req.body?.isFreeSpin);
-    const freeGameMultiplierPool: number[] | null =
-      isFreeSpin && Array.isArray(req.body?.freeGameMultiplierPool) ? req.body.freeGameMultiplierPool.map(Number) : null;
-    // The reel freezes wherever the player clicks Stop and reports what's actually showing —
-    // see games/SizzlingSevens/engine.ts's spinWithGrid doc comment for why the server no
-    // longer draws this itself. Falls back to a server-drawn grid if omitted (e.g. an older
-    // client, or a direct API caller).
-    const clientGrid = req.body?.grid;
-    if (clientGrid !== undefined && !isValidGrid(clientGrid)) {
-      res.status(400).json({ error: "grid must be a 3x3 array of valid symbol strings" });
+    const { betAmount, winAmount, reelSymbols, balanceAfter, tier } = req.body ?? {};
+
+    if (!Number.isFinite(betAmount) || betAmount < 0) {
+      res.status(400).json({ error: "betAmount must be a non-negative number" });
       return;
     }
-
-    if (!Number.isFinite(betLevel) || !BET_LEVELS.includes(betLevel)) {
-      res.status(400).json({ error: `betLevel must be one of ${BET_LEVELS.join(", ")}` });
+    if (!Number.isFinite(winAmount) || winAmount < 0) {
+      res.status(400).json({ error: "winAmount must be a non-negative number" });
       return;
     }
-    if (isFreeSpin && (!freeGameMultiplierPool || freeGameMultiplierPool.length === 0)) {
-      res.status(400).json({ error: "freeGameMultiplierPool is required for a free spin" });
+    if (!Number.isFinite(balanceAfter) || balanceAfter < 0) {
+      res.status(400).json({ error: "balanceAfter must be a non-negative number" });
       return;
     }
-
-    // betLevel *is* the real total bet (0.10-30, same convention every other game uses); the
-    // paytable's own numbers are all expressed relative to the fixed LINE_COST reference, so
-    // the scale factor actually fed into the win-calc functions is betLevel/LINE_COST — see
-    // config.ts's LINE_COST comment.
-    const totalBet = betLevel;
-    const betMultiplier = totalBet / LINE_COST;
-
-    const user = await User.findById(req.userId);
-    if (!user) {
-      res.status(404).json({ error: "User not found" });
+    if (
+      !Array.isArray(reelSymbols) ||
+      reelSymbols.length === 0 ||
+      !reelSymbols.every((reel) => Array.isArray(reel) && reel.every((s) => typeof s === "string"))
+    ) {
+      res.status(400).json({ error: "reelSymbols must be an array of symbol arrays" });
       return;
     }
-    if (!isFreeSpin && user.balance < totalBet) {
-      res.status(400).json({ error: "Insufficient balance" });
+    if (tier !== null && tier !== undefined && !WIN_TIERS.includes(tier)) {
+      res.status(400).json({ error: "tier must be null or one of BIG WIN, MEGA WIN, JACKPOT" });
       return;
     }
-
-    const paytableConfig = await getPaytableConfig(sizzlingSevensMeta.id);
-
-    const forcedOutcome = await ForcedOutcome.findOneAndUpdate(
-      { userId: user._id, gameId: sizzlingSevensMeta.id, status: "pending" },
-      { $set: { status: "consumed", consumedAt: new Date() } },
-      { sort: { createdAt: 1 }, new: true }
-    );
-
-    const result: SpinResult = forcedOutcome
-      ? spinForTier(betMultiplier, totalBet, forcedOutcome.targetTier, paytableConfig)
-      : clientGrid
-        ? spinWithGrid(clientGrid, betMultiplier, totalBet, paytableConfig, freeGameMultiplierPool)
-        : spin(betMultiplier, totalBet, paytableConfig, freeGameMultiplierPool);
-
-    const stakedAmount = isFreeSpin ? 0 : totalBet;
-    user.balance = Math.round((user.balance - stakedAmount + result.winAmount) * 100) / 100;
-    await user.save();
 
     const spinDoc = await SpinHistory.create({
-      userId: user._id,
+      userId: req.userId,
       gameId: sizzlingSevensMeta.id,
-      betAmount: stakedAmount,
-      winAmount: result.winAmount,
-      reelSymbols: result.grid,
-      balanceAfter: user.balance,
-      tier: result.tier,
-      forced: Boolean(forcedOutcome),
-      forcedOutcomeId: forcedOutcome?._id ?? null,
+      betAmount,
+      winAmount,
+      reelSymbols,
+      balanceAfter,
+      tier: (tier ?? null) as WinTierName | null,
+      forced: false,
+      forcedOutcomeId: null,
     });
 
-    if (forcedOutcome) {
-      forcedOutcome.consumedSpinId = spinDoc._id;
-      await forcedOutcome.save();
+    // Best-effort — a user lookup failing here shouldn't fail the log write itself, just
+    // means this one event won't show up in the admin Live Feed.
+    const user = await User.findById(req.userId).select("username").lean().catch(() => null);
+    if (user) {
+      emitSpinEvent({
+        userId: String(req.userId),
+        username: user.username,
+        gameId: sizzlingSevensMeta.id,
+        bet: betAmount,
+        winAmount,
+        tier: (tier ?? null) as WinTierName | null,
+        forced: false,
+        balanceAfter,
+        createdAt: spinDoc.createdAt.toISOString(),
+      });
     }
 
-    emitSpinEvent({
-      userId: String(user._id),
-      username: user.username,
-      gameId: sizzlingSevensMeta.id,
-      bet: stakedAmount,
-      winAmount: result.winAmount,
-      tier: result.tier,
-      forced: Boolean(forcedOutcome),
-      balanceAfter: user.balance,
-      createdAt: spinDoc.createdAt.toISOString(),
-    });
-
-    res.json({
-      grid: result.grid,
-      evaluation: result.evaluation,
-      winAmount: result.winAmount,
-      tier: result.tier,
-      freeGamesAward: result.freeGamesAward,
-      balance: user.balance,
-      meta: { forced: Boolean(forcedOutcome) },
-    });
+    res.status(201).json({ ok: true });
   })
 );
 

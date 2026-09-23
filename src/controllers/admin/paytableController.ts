@@ -3,19 +3,16 @@ import {
   getPaytableConfig,
   validatePaytableConfig,
   savePaytableConfig,
-  computeSizzlingSevensStats,
   computeVegasHitsStats,
   PaytableConfigDTO,
 } from "../../services/paytableConfig";
 import { TierKey, TierRow, TIER_KEYS } from "../../models/PaytableConfig";
-import { sizzlingSevensMeta } from "../../games/SizzlingSevens/meta";
 import { vegasHitsMeta } from "../../games/VegasHits/meta";
 
-/** Sizzling 7s and Vegas Hits both have no dedicated "loss" tier (every row is a real,
- * always-drawn reel symbol), so loss% is a computed simulation stat rather than a tier's own
- * frequencyPercent — see computeSizzlingSevensStats/computeVegasHitsStats. */
+/** Vegas Hits has no dedicated "loss" tier (every row is a real, always-drawn reel symbol), so
+ * loss% is a computed simulation stat rather than a tier's own frequencyPercent — see
+ * computeVegasHitsStats. */
 function computedLossPercent(gameId: string, config: PaytableConfigDTO): number | undefined {
-  if (gameId === sizzlingSevensMeta.id) return computeSizzlingSevensStats(config).lossPercent;
   if (gameId === vegasHitsMeta.id) return computeVegasHitsStats(config).lossPercent;
   return undefined;
 }

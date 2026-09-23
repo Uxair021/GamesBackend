@@ -15,24 +15,6 @@ import {
   isAny3BarWithSevenBar,
   isAny3Sevens,
 } from "../games/FiveXRewind/winCalc";
-import { sizzlingSevensMeta } from "../games/SizzlingSevens/meta";
-import {
-  SizzlingSymbol,
-  DEFAULT_PAYTABLE as SIZZLING_DEFAULT_PAYTABLE,
-  PURE_WILD_PAYOUT as SIZZLING_PURE_WILD_PAYOUT,
-  WILD_SYMBOL as SIZZLING_WILD_SYMBOL,
-  REEL_COUNT as SIZZLING_REEL_COUNT,
-  ROW_COUNT as SIZZLING_ROW_COUNT,
-  LINE_COST as SIZZLING_LINE_COST,
-} from "../games/SizzlingSevens/config";
-import {
-  Grid as SizzlingGrid,
-  Paytable as SizzlingPaytable,
-  PureWildPayout as SizzlingPureWildPayout,
-  calculateSpinWin as sizzlingCalculateSpinWin,
-  triggerFreeGames as sizzlingTriggerFreeGames,
-  pickFreeSpinMultiplier as sizzlingPickFreeSpinMultiplier,
-} from "../games/SizzlingSevens/winCalc";
 import { crystalCloverMeta } from "../games/CrystalClover/meta";
 import { fruity777Meta } from "../games/Fruity777/meta";
 import { mega10xPayMeta } from "../games/Mega10XPay/meta";
@@ -87,11 +69,6 @@ import { OFFER_DRAW_COUNT_WEIGHTS as GD_OFFER_DRAW_COUNT_WEIGHTS, MIN_BET as GD_
 
 const FREQUENCY_TOLERANCE = 0.01;
 const RTP_TOLERANCE_PERCENT = 0.5;
-/** Slightly looser than RTP_TOLERANCE_PERCENT — the RTP Control page's loss% solver (see
- * adminApi.ts's solveSizzlingSevensLossPercent) searches at a lower sim count than this
- * validates at, and its search grid isn't as fine-grained as the RTP field's, so it lands a bit
- * less precisely on the target than a direct payout-multiplier rescale does. */
-const LOSS_TOLERANCE_PERCENT = 1.0;
 
 export interface PaytableConfigDTO {
   gameId: string;
@@ -301,62 +278,6 @@ const DEFAULT_CONFIGS: Record<string, PaytableConfigDTO> = {
       { key: "coin4x", frequencyPercent: 0.2195, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
       { key: "coin5x", frequencyPercent: 0.0439, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
     ],
-    respinRange: null,
-    reelStateConfig: null,
-    wildRules: null,
-    symbolPayouts: null,
-    scatterRules: null,
-  },
-  [sizzlingSevensMeta.id]: {
-    gameId: sizzlingSevensMeta.id,
-    // `tiers` is a 7-row reel-strip weight table (one row per symbol, not a per-outcome table
-    // like every other game — see games/SizzlingSevens/config.ts) — frequencyPercent is that
-    // symbol's draw weight (all 7 sum to 100%), payoutMultiplier is its 3-matching payout
-    // (WILD_2X's row holds only the 3-Wild pure payout).
-    //
-    // A 3x3 grid only has 9 cells, and every cell sits on ~9 of the 27 (heavily overlapping)
-    // lines at once — payouts at the originally-requested scale (RED_7=250, BAR=25, etc, plus
-    // an "any mix of the 3 BAR symbols" rule that pays on almost every bar-heavy grid — see
-    // config.ts's ANY_BAR_PAYOUT) push the *minimum achievable* RTP to ~725% no matter how
-    // weights are tuned (verified both empirically and via a closed-form derivation) — about
-    // 8.5x too high for an 85% target. These weights + config.ts's already-rescaled payout
-    // table (~17.1x down from the original numbers, same relative shape) are tuned to land at
-    // 85% RTP with loss frequency *maximized* within that constraint: a line only avoids paying
-    // when it mixes symbols across the 3 "incompatible" families (BAR family / BLUE_7 / RED_7,
-    // none of which cross-pay each other) — verified via a targeted weight-shape search this
-    // session — so those three get roughly equal weight (BAR family split evenly across
-    // BAR/DOUBLE_BAR/TRIPLE_BAR) while WILD_2X/BONUS stay near their original rarity (they
-    // always chip away at loss frequency regardless of concentration, since neither needs
-    // payline alignment to pay). Confirmed via the seeded simulation at 85.1% RTP / 21.57% loss
-    // — the real ceiling for loss frequency here, nowhere near 90%, for the same "every 3-row
-    // combination is a live line" structural reason the RTP floor exists.
-    targetRtpPercent: 85.0,
-    targetLossPercent: 21.57,
-    freeSpinsGranted: null,
-    tiers: [
-      { key: "BAR", frequencyPercent: 11, payoutMultiplier: 1.4195, freeSpinPayoutMultiplier: null },
-      { key: "DOUBLE_BAR", frequencyPercent: 11, payoutMultiplier: 1.7034, freeSpinPayoutMultiplier: null },
-      { key: "TRIPLE_BAR", frequencyPercent: 11, payoutMultiplier: 2.8389, freeSpinPayoutMultiplier: null },
-      { key: "BLUE_7", frequencyPercent: 33, payoutMultiplier: 5.6779, freeSpinPayoutMultiplier: null },
-      { key: "RED_7", frequencyPercent: 32, payoutMultiplier: 14.1946, freeSpinPayoutMultiplier: null },
-      { key: "BONUS", frequencyPercent: 1.5, payoutMultiplier: 3.4067, freeSpinPayoutMultiplier: null },
-      { key: "WILD_2X", frequencyPercent: 0.5, payoutMultiplier: 0.5678, freeSpinPayoutMultiplier: null },
-    ],
-    ruleTierMap: null,
-    celebrationMap: null,
-    // Bet-multiple cutoffs — see games/SizzlingSevens/engine.ts's celebrationTier() comment.
-    // Picked from the simulated non-zero win distribution at these weights/payouts
-    // (bigWinMin≈p97, megaWinMin≈p99.5, jackpotMin≈p99.9) — mirrors engine.ts's
-    // DEFAULT_THRESHOLDS exactly.
-    amountThresholds: {
-      simpleWinMax: 0,
-      bigWinMin: 3,
-      megaWinMin: 6,
-      jackpotMin: 12,
-      zeroRespinMin: 0,
-      zeroRespinMax: 0,
-    },
-    specialReelTiers: null,
     respinRange: null,
     reelStateConfig: null,
     wildRules: null,
@@ -1035,131 +956,6 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function sizzlingWeightedSymbol(tiers: TierRow[], rng: () => number): SizzlingSymbol {
-  const total = tiers.reduce((sum, t) => sum + t.frequencyPercent, 0);
-  let roll = rng() * total;
-  for (const t of tiers) {
-    roll -= t.frequencyPercent;
-    if (roll < 0) return t.key as SizzlingSymbol;
-  }
-  return tiers[tiers.length - 1].key as SizzlingSymbol;
-}
-
-function sizzlingDrawGrid(tiers: TierRow[], rng: () => number): SizzlingGrid {
-  const grid: SizzlingGrid = [];
-  for (let reel = 0; reel < SIZZLING_REEL_COUNT; reel++) {
-    const column: SizzlingSymbol[] = [];
-    for (let row = 0; row < SIZZLING_ROW_COUNT; row++) column.push(sizzlingWeightedSymbol(tiers, rng));
-    grid.push(column);
-  }
-  return grid;
-}
-
-function sizzlingPaytableFrom(tiers: TierRow[]): SizzlingPaytable {
-  const paytable: SizzlingPaytable = { ...SIZZLING_DEFAULT_PAYTABLE };
-  for (const tier of tiers) {
-    if (tier.key === SIZZLING_WILD_SYMBOL || tier.payoutMultiplier === null) continue;
-    if (tier.key in paytable) (paytable as Record<string, number>)[tier.key] = tier.payoutMultiplier;
-  }
-  return paytable;
-}
-
-function sizzlingPureWildPayoutFrom(tiers: TierRow[]): SizzlingPureWildPayout {
-  const wildRow = tiers.find((t) => t.key === SIZZLING_WILD_SYMBOL);
-  return {
-    1: SIZZLING_PURE_WILD_PAYOUT[1],
-    2: SIZZLING_PURE_WILD_PAYOUT[2],
-    3: wildRow?.payoutMultiplier ?? SIZZLING_PURE_WILD_PAYOUT[3],
-  };
-}
-
-const SIZZLING_SIMS = 200_000;
-/** Safety cap on total free spins played within one triggered chain (initial award + every
- * retrigger) — astronomically unlikely to ever bind for real weights, just bounds worst case. */
-const SIZZLING_MAX_FREE_SPINS = 500;
-
-/** Plays out one full round at a 1-unit bet: a base spin, plus — if it triggers — every free
- * spin in the awarded (and possibly retriggered) Free Games chain. Reuses the exact same
- * calculateSpinWin/triggerFreeGames/pickFreeSpinMultiplier the real engine uses, so this can
- * only diverge from live play in *how many* rounds get sampled, never in the win math itself.
- * `isBaseLoss` reflects only the base spin itself (what the player immediately sees) — a
- * round that triggers Free Games always has scatterWin > 0, so it's never counted as a loss
- * here even though bonus-round wins are folded into `win`. */
-function simulateSizzlingRound(
-  tiers: TierRow[],
-  paytable: SizzlingPaytable,
-  pureWildPayout: SizzlingPureWildPayout,
-  rng: () => number
-): { win: number; isBaseLoss: boolean } {
-  // A real spin's finalWin is basePayout * wildMultiplier * betMultiplier, where betMultiplier
-  // = totalBet / LINE_COST (see games/SizzlingSevens/routes.ts) — betMultiplier is NOT the same
-  // thing as totalBet, they differ by exactly LINE_COST. Simulating "at a 1-unit bet" therefore
-  // means betMultiplier = 1/LINE_COST, not the literal 1 this used to pass — that earlier
-  // version was silently computing finalWin as if totalBet and betMultiplier were the same
-  // number, over-reporting RTP by exactly a factor of LINE_COST (confirmed against live spins).
-  const betMultiplier = 1 / SIZZLING_LINE_COST;
-  const grid = sizzlingDrawGrid(tiers, rng);
-  const evaluation = sizzlingCalculateSpinWin(grid, paytable, betMultiplier, 1, pureWildPayout);
-  let total = evaluation.finalWin;
-  const isBaseLoss = evaluation.finalWin === 0;
-
-  if (evaluation.triggeredFreeGames) {
-    let award = sizzlingTriggerFreeGames(rng);
-    let remaining = award.freeSpins;
-    let pool = award.multiplierPool;
-    let played = 0;
-    while (remaining > 0 && played < SIZZLING_MAX_FREE_SPINS) {
-      remaining--;
-      played++;
-      const freeGrid = sizzlingDrawGrid(tiers, rng);
-      const freeMultiplier = sizzlingPickFreeSpinMultiplier(pool, rng);
-      const freeEvaluation = sizzlingCalculateSpinWin(freeGrid, paytable, betMultiplier, freeMultiplier, pureWildPayout);
-      total += freeEvaluation.finalWin;
-      if (freeEvaluation.triggeredFreeGames) {
-        award = sizzlingTriggerFreeGames(rng);
-        remaining += award.freeSpins;
-        pool = award.multiplierPool;
-      }
-    }
-  }
-
-  return { win: total, isBaseLoss };
-}
-
-export interface SizzlingSevensStats {
-  rtpPercent: number;
-  /** Percent of base spins (not counting free-spin rounds) that pay nothing at all — the
-   * closest equivalent to every other game's admin-editable "Loss" row, except this is a
-   * *computed* stat rather than an editable weight, since Sizzling 7s has no dedicated "loss"
-   * symbol to draw — losing is just whatever combinatorially doesn't line up. */
-  lossPercent: number;
-}
-
-/** Sizzling 7s' RTP and loss frequency are estimated (not exactly enumerated, unlike every
- * other game here) via SIZZLING_SIMS simulated rounds at a 1-unit bet, using a fixed-seed RNG
- * so the result is a deterministic function of `config` alone. Both stats come from the same
- * simulation pass so they're always consistent with each other. */
-export function computeSizzlingSevensStats(config: PaytableConfigDTO): SizzlingSevensStats {
-  const paytable = sizzlingPaytableFrom(config.tiers);
-  const pureWildPayout = sizzlingPureWildPayoutFrom(config.tiers);
-  const rng = mulberry32(0xc0ffee);
-
-  let total = 0;
-  let lossCount = 0;
-  for (let i = 0; i < SIZZLING_SIMS; i++) {
-    const { win, isBaseLoss } = simulateSizzlingRound(config.tiers, paytable, pureWildPayout, rng);
-    total += win;
-    if (isBaseLoss) lossCount++;
-  }
-  return {
-    rtpPercent: (total / SIZZLING_SIMS) * 100,
-    lossPercent: (lossCount / SIZZLING_SIMS) * 100,
-  };
-}
-
-function computeSizzlingSevensRtpPercent(config: PaytableConfigDTO): number {
-  return computeSizzlingSevensStats(config).rtpPercent;
-}
 
 function vegasHitsWeightedSymbol(tiers: TierRow[], rng: () => number): VegasHitsSymbol {
   const total = tiers.reduce((sum, t) => sum + t.frequencyPercent, 0);
@@ -1490,10 +1286,6 @@ export function computeRtpPercent(config: PaytableConfigDTO): number {
     return computeFiveXRewindRtpPercent(config);
   }
 
-  if (config.gameId === sizzlingSevensMeta.id) {
-    return computeSizzlingSevensRtpPercent(config);
-  }
-
   if (config.gameId === crystalCloverMeta.id) {
     return computeCrystalCloverRtpPercent(config);
   }
@@ -1542,22 +1334,11 @@ export function validatePaytableConfig(config: PaytableConfigDTO): ValidationRes
     errors.push(`Frequencies must sum to 100% — currently ${frequencySum.toFixed(2)}%.`);
   }
 
-  // Sizzling 7s' RTP and loss% both come from the same (expensive, 200k-sim) Monte Carlo pass —
-  // compute it once and reuse for both checks below, rather than running the simulation twice.
-  const sizzlingStats = config.gameId === sizzlingSevensMeta.id ? computeSizzlingSevensStats(config) : null;
-  const computedRtpPercent = sizzlingStats ? sizzlingStats.rtpPercent : computeRtpPercent(config);
+  const computedRtpPercent = computeRtpPercent(config);
   if (Math.abs(computedRtpPercent - config.targetRtpPercent) > RTP_TOLERANCE_PERCENT) {
     errors.push(
       `Computed RTP is ${computedRtpPercent.toFixed(2)}%, which doesn't match the target of ${config.targetRtpPercent.toFixed(2)}% (±${RTP_TOLERANCE_PERCENT}%). Adjust frequencies or payout multipliers.`
     );
-  }
-
-  if (sizzlingStats && config.targetLossPercent !== null) {
-    if (Math.abs(sizzlingStats.lossPercent - config.targetLossPercent) > LOSS_TOLERANCE_PERCENT) {
-      errors.push(
-        `Computed loss frequency is ${sizzlingStats.lossPercent.toFixed(2)}%, which doesn't match the target of ${config.targetLossPercent.toFixed(2)}% (±${LOSS_TOLERANCE_PERCENT}%). Adjust symbol weights.`
-      );
-    }
   }
 
   for (const tier of config.tiers) {
