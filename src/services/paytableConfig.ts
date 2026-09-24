@@ -38,18 +38,6 @@ import {
   triggerFreeGames as vegasHitsTriggerFreeGames,
   pickChiliMultiplier as vegasHitsPickChiliMultiplier,
 } from "../games/VegasHits/winCalc";
-import { lifeOfLuxuryMeta } from "../games/LifeOfLuxury/meta";
-import {
-  REGULAR_SYMBOLS as LOL_REGULAR_SYMBOLS,
-  DEFAULT_SYMBOL_PAYOUTS as LOL_DEFAULT_SYMBOL_PAYOUTS,
-  DEFAULT_SCATTER_RULES as LOL_DEFAULT_SCATTER_RULES,
-  SCATTER_TRIGGER_COUNT as LOL_SCATTER_TRIGGER_COUNT,
-  ROW_COUNT as LOL_ROW_COUNT,
-  REEL_COUNT as LOL_REEL_COUNT,
-  LINE_COUNT as LOL_LINE_COUNT,
-  WILD_SYMBOL as LOL_WILD_SYMBOL,
-  WILD_ALLOWED_REELS as LOL_WILD_ALLOWED_REELS,
-} from "../games/LifeOfLuxury/config";
 import { rubberDuckMeta } from "../games/RubberDuck/meta";
 import {
   PAYING_SYMBOLS as RD_PAYING_SYMBOLS,
@@ -503,59 +491,6 @@ const DEFAULT_CONFIGS: Record<string, PaytableConfigDTO> = {
     },
     symbolPayouts: null,
     scatterRules: null,
-  },
-  [lifeOfLuxuryMeta.id]: {
-    gameId: lifeOfLuxuryMeta.id,
-    // Reel-strip weight table — 9 payout symbols + WILD, summing to 100%. COIN is NOT a row
-    // here: it's rolled as its own independent per-cell chance (scatterRules.chancePercent),
-    // separate from this table. WILD genuinely substitutes into a payline run and is confined to
-    // reels 2-4 (see games/LifeOfLuxury/config.ts's WILD_ALLOWED_REELS) — it used to be keyed
-    // "FILLER" here by mistake, which silently defeated both the reel restriction (engine.ts's
-    // drawGrid filters tiers by key !== "WILD") and the payline substitution (winCalc.ts checks
-    // symbols against WILD_SYMBOL), making the diamond a purely decorative dead weight on every
-    // reel instead of a real wild on reels 2-4 only.
-    //
-    // Every line pays the *full* bet (no 1/15th-per-line split), so even modest per-symbol
-    // weight compounds heavily once multiplied across 15 simultaneous lines. WILD at 11% (reels
-    // 2-4 only) plus these 9 weights (inversely proportional to each symbol's own x5 payout, same
-    // shape as before, just rescaled to sum to the remaining 89%) were solved together with
-    // DEFAULT_SYMBOL_PAYOUTS' rescale (see that constant's doc comment in config.ts) via
-    // computeLifeOfLuxuryRtpPercent below to land back at the same ~90% RTP target now that WILD
-    // actually substitutes, with Coin still a genuinely rare 3% independent chance (~0.9% of
-    // spins trigger free spins).
-    targetRtpPercent: 90.33,
-    targetLossPercent: null,
-    freeSpinsGranted: null,
-    tiers: [
-      { key: "AEROPLANE", frequencyPercent: 0.4, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "BOAT", frequencyPercent: 1.98, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "CAR", frequencyPercent: 3.97, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "RING", frequencyPercent: 9.92, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "MONEY", frequencyPercent: 9.92, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "WATCH", frequencyPercent: 13.22, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "GOLD_BAR", frequencyPercent: 13.22, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "SILVER_BAR", frequencyPercent: 16.53, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "BRONZE_BAR", frequencyPercent: 19.84, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "WILD", frequencyPercent: 11, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-    ],
-    ruleTierMap: null,
-    celebrationMap: null,
-    // Bet-multiple cutoffs matching the admin forced-outcome tool's 3 forced grids exactly — see
-    // games/LifeOfLuxury/engine.ts's DEFAULT_THRESHOLDS/FORCED_GRIDS comments.
-    amountThresholds: {
-      simpleWinMax: 0,
-      bigWinMin: 100,
-      megaWinMin: 200,
-      jackpotMin: 1000,
-      zeroRespinMin: 0,
-      zeroRespinMax: 0,
-    },
-    specialReelTiers: null,
-    respinRange: null,
-    reelStateConfig: null,
-    wildRules: null,
-    symbolPayouts: LOL_DEFAULT_SYMBOL_PAYOUTS,
-    scatterRules: LOL_DEFAULT_SCATTER_RULES,
   },
   [rubberDuckMeta.id]: {
     gameId: rubberDuckMeta.id,
@@ -1105,71 +1040,6 @@ function nChooseK(n: number, k: number): number {
 }
 
 /**
- * Closed-form, not simulated. Every one of the 15 cells independently rolls: is this COIN (its
- * own admin-configured chance, scatterRules.chancePercent — NOT a share of `tiers`)? If not,
- * draw from `tiers` (the 9 payout symbols + WILD). WILD genuinely substitutes into a payline run
- * and is restricted to reels 2-4 (see WILD_ALLOWED_REELS) — reels 1/5 draw only the 9 real
- * symbols, renormalized so they still sum to 100% there. Because every line pays the *full* bet
- * (no per-line split) and every line shares the exact same reel-index structure (only reel INDEX
- * determines outer- vs middle-reel odds, not row), the total is LINE_COUNT times one line's own
- * expectation, same as before — only the per-position match probability changed:
- *
- *   pOuter_s  = weight_s / (100 - wildWeight)      — symbol s's share on reels 1/5 (no WILD there)
- *   pMiddle_s = (weight_s + wildWeight) / 100       — symbol s's match share on reels 2-4 (itself
- *                                                       or WILD substituting)
- *   m0(s) = m4(s) = (1-coinChance) * pOuter_s        — match prob at reel 1 / reel 5
- *   m1(s) = m2(s) = m3(s) = (1-coinChance) * pMiddle_s  — match prob at reels 2/3/4
- *   lineRTP = LINE_COUNT * sum over regular symbols s of
- *               [ m0*m1*m2*(1-m3)*x3 + m0*m1*m2*m3*(1-m4)*x4 + m0*m1*m2*m3*m4*x5 ]
- *   scatterRTP = sum_{k=3..15} C(15,k) coinChance^k (1-coinChance)^(15-k) * mult(k) — unaffected
- *                by WILD, coin is rolled independently of the symbol table
- *   freeSpinEV = P(k>=3, base spin only) * freeSpinsAwarded * (lineRTP + scatterRTP) — exact,
- *                not an approximation, since this game has no free-spin retriggering (see
- *                games/LifeOfLuxury/engine.ts's spin()) — nothing to compound.
- */
-function computeLifeOfLuxuryRtpPercent(config: PaytableConfigDTO): number {
-  const weightOf = (symbol: string): number => config.tiers.find((t) => t.key === symbol)?.frequencyPercent ?? 0;
-  const payoutOf = (symbol: string) => config.symbolPayouts?.[symbol] ?? LOL_DEFAULT_SYMBOL_PAYOUTS[symbol as keyof typeof LOL_DEFAULT_SYMBOL_PAYOUTS];
-
-  const scatterRules = config.scatterRules ?? LOL_DEFAULT_SCATTER_RULES;
-  const coinChance = scatterRules.chancePercent / 100;
-  const wildWeight = weightOf(LOL_WILD_SYMBOL);
-  const outerDenom = 100 - wildWeight;
-  // Every line shares the same reel-index structure (only WILD_ALLOWED_REELS decides outer vs
-  // middle, and it's the same 3 middle reels for every one of the 15 lines).
-  const isMiddle = (reelIndex: number) => LOL_WILD_ALLOWED_REELS.includes(reelIndex);
-
-  let perLineSum = 0;
-  for (const symbol of LOL_REGULAR_SYMBOLS) {
-    const weight = weightOf(symbol);
-    const pOuter = outerDenom > 0 ? weight / outerDenom : 0;
-    const pMiddle = (weight + wildWeight) / 100;
-    const matchAt = (reelIndex: number) => (1 - coinChance) * (isMiddle(reelIndex) ? pMiddle : pOuter);
-    const m = [0, 1, 2, 3, 4].map(matchAt);
-
-    const payout = payoutOf(symbol);
-    const P3 = m[0] * m[1] * m[2] * (1 - m[3]);
-    const P4 = m[0] * m[1] * m[2] * m[3] * (1 - m[4]);
-    const P5 = m[0] * m[1] * m[2] * m[3] * m[4];
-    perLineSum += P3 * payout.x3 + P4 * payout.x4 + P5 * payout.x5;
-  }
-  const lineRTP = LOL_LINE_COUNT * perLineSum;
-
-  const cellCount = LOL_REEL_COUNT * LOL_ROW_COUNT;
-  let scatterRTP = 0;
-  let triggerProb = 0;
-  for (let k = LOL_SCATTER_TRIGGER_COUNT; k <= cellCount; k++) {
-    const prob = nChooseK(cellCount, k) * Math.pow(coinChance, k) * Math.pow(1 - coinChance, cellCount - k);
-    const multiplier = k === 3 ? scatterRules.x3 : k === 4 ? scatterRules.x4 : scatterRules.x5;
-    scatterRTP += prob * multiplier;
-    triggerProb += prob;
-  }
-
-  const freeSpinEV = triggerProb * scatterRules.freeSpinsAwarded * (lineRTP + scatterRTP);
-  return (lineRTP + scatterRTP + freeSpinEV) * 100;
-}
-
-/**
  * Closed-form, not simulated. Each of the 5 reels independently draws from `tiers` (21 rows: 14
  * payers + BONUS + 6 loss fruits) — no matching/adjacency requirement, every reel that lands a
  * paying symbol adds its own payoutMultiplier to the spin's total (confirmed with user: "even a
@@ -1292,10 +1162,6 @@ export function computeRtpPercent(config: PaytableConfigDTO): number {
 
   if (config.gameId === vegasHitsMeta.id) {
     return computeVegasHitsRtpPercent(config);
-  }
-
-  if (config.gameId === lifeOfLuxuryMeta.id) {
-    return computeLifeOfLuxuryRtpPercent(config);
   }
 
   if (config.specialReelTiers) {

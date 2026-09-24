@@ -127,11 +127,11 @@ export type TierKey =
   | "GREEN_7"
   | "DOUBLE_GREEN_7"
   | "TRIPLE_GREEN_7"
-  // Life of Luxury only — one row per reel symbol (stored in `tiers`), same "reel-strip weight
-  // table" shape as Vegas Hits/Sizzling 7s (see games/LifeOfLuxury/config.ts). Every row's
-  // payoutMultiplier stays unused/null — with 5 reels a single number per row can't represent
-  // a symbol's 3 different match-length (3/4/5) payouts, so those live in `symbolPayouts`
-  // below instead, and COIN's own scatter payout/free-spins live in `scatterRules`.
+  // Formerly Life of Luxury's reel-strip weight table (one row per symbol, stored in `tiers`,
+  // same shape as Vegas Hits/Sizzling 7s) — Life of Luxury now runs fully client-side (see
+  // frontEnd/src/games/LifeOfLuxury/api.ts, with its own localStorage-based RTP config), so
+  // these keys and the symbolPayouts/scatterRules fields below are no longer read/written by
+  // that game; left here only because other tier keys share this same union type.
   | "AEROPLANE"
   | "BOAT"
   | "CAR"
@@ -396,17 +396,15 @@ export interface IPaytableConfig extends Document {
     twoCompleteMultiplier: number;
     anyMixBet: number;
   } | null;
-  /** Life of Luxury only — each regular symbol's own 3/4/5-of-a-kind line payout (multiple of
-   * the bet — this game has no per-line bet split, see ScatterRules below). A single
-   * payoutMultiplier per tier row (every other game's shape) can't represent 3 different
-   * match-length payouts, hence this separate field — keyed by symbol name (e.g. "AEROPLANE"),
-   * see games/LifeOfLuxury/config.ts's SymbolPayout. */
+  /** Formerly Life of Luxury's each-symbol 3/4/5-of-a-kind line payout table. No longer
+   * read/written now that Life of Luxury runs fully client-side (see
+   * frontEnd/src/games/LifeOfLuxury/api.ts) — kept on the schema only for backward
+   * compatibility with any already-stored documents. */
   symbolPayouts: Record<string, { x3: number; x4: number; x5: number }> | null;
-  /** Life of Luxury only — the COIN scatter's own independent per-cell chance (rolled
-   * separately from `tiers`, unlike WILD which is a normal weighted row there), its payout
-   * (multiple of bet, counted anywhere on the grid, not a payline), and the
-   * free spins it awards on a base-spin 3+ (never on a free-spin, no retriggering) — see
-   * games/LifeOfLuxury/config.ts's ScatterRules. */
+  /** Formerly Life of Luxury's COIN scatter rules (independent per-cell chance, payout, free
+   * spins awarded). No longer read/written now that Life of Luxury runs fully client-side (see
+   * frontEnd/src/games/LifeOfLuxury/api.ts) — kept on the schema only for backward
+   * compatibility with any already-stored documents. */
   scatterRules: { chancePercent: number; x3: number; x4: number; x5: number; freeSpinsAwarded: number } | null;
   createdAt: Date;
   updatedAt: Date;
