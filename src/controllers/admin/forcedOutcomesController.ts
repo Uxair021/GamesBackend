@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import { ForcedOutcome } from "../../models/ForcedOutcome";
-import { WIN_TIERS } from "../../games/ShamrockSpin/winTiers";
+import { WIN_TIER_NAMES } from "../../gameTiers";
 
-const VALID_TIERS = new Set(WIN_TIERS.map((t) => t.name));
+const VALID_TIERS = new Set(WIN_TIER_NAMES);
 
 export async function createForcedOutcome(req: Request, res: Response): Promise<void> {
   const { userId, gameId, targetTier } = req.body ?? {};

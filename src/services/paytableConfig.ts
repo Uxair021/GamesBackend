@@ -1,6 +1,5 @@
 import { PaytableConfig, TierRow, TierKey } from "../models/PaytableConfig";
 import { WinTierName } from "../gameTiers";
-import { shamrockSpinMeta } from "../games/ShamrockSpin/meta";
 import { cashMachineMeta } from "../games/CashMachine/meta";
 import { crazy777Meta } from "../games/Crazy777/meta";
 import { fiveXRewindMeta } from "../games/FiveXRewind/meta";
@@ -95,48 +94,13 @@ export interface PaytableConfigDTO {
 }
 
 /**
- * Seeded so that, out of the box (before an admin ever saves a change), both games behave
- * the same as they did under the old reel-weight-driven engines — derived via Monte Carlo
- * simulation of the previous buildStrip()/evaluateLine() (ShamrockSpin) and weighted-digit
- * concatenation (Cash Machine) logic. Both defaults reproduce the already-accepted (see
- * ShamrockSpin/config.ts and CashMachine/config.ts history) inflated RTP of the old system —
- * this panel is what finally gives admin a real way to bring that down if they want to.
+ * Seeded so that, out of the box (before an admin ever saves a change), Cash Machine behaves
+ * the same as it did under its old reel-weight-driven engine — derived via Monte Carlo
+ * simulation of the previous weighted-digit concatenation logic. Reproduces the already-accepted
+ * (see CashMachine/config.ts history) inflated RTP of the old system — this panel is what
+ * finally gives admin a real way to bring that down if they want to.
  */
 const DEFAULT_CONFIGS: Record<string, PaytableConfigDTO> = {
-  [shamrockSpinMeta.id]: {
-    gameId: shamrockSpinMeta.id,
-    targetRtpPercent: 330.32,
-    targetLossPercent: null,
-    freeSpinsGranted: 3,
-    tiers: [
-      { key: "loss", frequencyPercent: 54.79, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "freeSpin", frequencyPercent: 8.0, payoutMultiplier: null, freeSpinPayoutMultiplier: null },
-      { key: "simpleWin", frequencyPercent: 34.91, payoutMultiplier: 4.5, freeSpinPayoutMultiplier: 6 },
-      { key: "bigWin", frequencyPercent: 1.91, payoutMultiplier: 29, freeSpinPayoutMultiplier: 29 },
-      { key: "megaWin", frequencyPercent: 0.37, payoutMultiplier: 59, freeSpinPayoutMultiplier: 59 },
-      { key: "jackpot", frequencyPercent: 0.02, payoutMultiplier: 400, freeSpinPayoutMultiplier: 4000 },
-    ],
-    ruleTierMap: {
-      WILD_JACKPOT: "jackpot",
-      GREEN_SEVEN: "megaWin",
-      ORANGE_SEVEN: "megaWin",
-      YELLOW_SEVEN: "bigWin",
-      TRIPLE_BAR: "bigWin",
-      ANY_SEVENS: "simpleWin",
-      ANY_BARS: "simpleWin",
-      SINGLE_BAR: "simpleWin",
-      TWO_WILDS: "simpleWin",
-      ONE_WILD: "simpleWin",
-    },
-    celebrationMap: { simpleWin: null, bigWin: "BIG WIN", megaWin: "MEGA WIN", jackpot: "JACKPOT" },
-    amountThresholds: null,
-    specialReelTiers: null,
-    respinRange: null,
-    reelStateConfig: null,
-    wildRules: null,
-    symbolPayouts: null,
-    scatterRules: null,
-  },
   [cashMachineMeta.id]: {
     gameId: cashMachineMeta.id,
     // Base tiers (loss/simple/big/mega/jackpot) still sum to ~139.52%, same as before; the

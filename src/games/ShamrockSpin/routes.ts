@@ -1,106 +1,84 @@
 import { Router, Request, Response } from "express";
-import { User } from "../../models/User";
 import { SpinHistory } from "../../models/SpinHistory";
-import { ForcedOutcome } from "../../models/ForcedOutcome";
+import { User } from "../../models/User";
 import { requireAuth } from "../../middleware/requireAuth";
 import { asyncHandler } from "../../utils/asyncHandler";
-import { getPaytableConfig } from "../../services/paytableConfig";
 import { emitSpinEvent } from "../../realtime/eventBus";
-import { spin, spinForTier } from "./engine";
-import { WIN_RULES, BET_LEVELS, MIN_BET, MAX_BET, MAX_TOTAL_FREE_SPINS } from "./config";
 import { shamrockSpinMeta } from "./meta";
+
+const WIN_TIERS = ["BIG WIN", "MEGA WIN", "JACKPOT"] as const;
+type WinTierName = (typeof WIN_TIERS)[number];
 
 const router = Router();
 
-router.get("/config", (_req: Request, res: Response) => {
-  res.json({
-    meta: shamrockSpinMeta,
-    winRules: WIN_RULES,
-    betLevels: BET_LEVELS,
-    maxTotalFreeSpins: MAX_TOTAL_FREE_SPINS,
-  });
-});
-
+/**
+ * Shamrock Spin is a fully offline, client-side test game — RNG, win math, and balance are
+ * computed entirely in the browser (see frontEnd/src/games/ShamrockSpin/api.ts), nothing here
+ * decides or verifies the outcome. This is a pure write-only logging sink: the client reports
+ * what already happened, purely for record-keeping alongside every other game's SpinHistory, and
+ * the call is fire-and-forget on the frontend — nothing in gameplay depends on it succeeding.
+ */
 router.post(
-  "/spin",
+  "/spin-log",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    const betAmount = Number(req.body?.betAmount);
-    const isFreeSpin = Boolean(req.body?.freeSpin);
+    const { betAmount, winAmount, reelSymbols, balanceAfter, tier } = req.body ?? {};
 
-    if (!Number.isFinite(betAmount) || betAmount < MIN_BET || betAmount > MAX_BET) {
-      res.status(400).json({ error: `betAmount must be between ${MIN_BET} and ${MAX_BET}` });
+    if (!Number.isFinite(betAmount) || betAmount < 0) {
+      res.status(400).json({ error: "betAmount must be a non-negative number" });
       return;
     }
-
-    const user = await User.findById(req.userId);
-    if (!user) {
-      res.status(404).json({ error: "User not found" });
+    if (!Number.isFinite(winAmount) || winAmount < 0) {
+      res.status(400).json({ error: "winAmount must be a non-negative number" });
       return;
     }
-    if (!isFreeSpin && user.balance < betAmount) {
-      res.status(400).json({ error: "Insufficient balance" });
+    if (!Number.isFinite(balanceAfter) || balanceAfter < 0) {
+      res.status(400).json({ error: "balanceAfter must be a non-negative number" });
       return;
     }
-
-    const paytableConfig = await getPaytableConfig(shamrockSpinMeta.id);
-
-    // Atomically claim the oldest pending forced-outcome directive for this user *on this
-    // game* — scoped by gameId so a directive queued for another game isn't consumed here.
-    const forcedOutcome = await ForcedOutcome.findOneAndUpdate(
-      { userId: user._id, gameId: shamrockSpinMeta.id, status: "pending" },
-      { $set: { status: "consumed", consumedAt: new Date() } },
-      { sort: { createdAt: 1 }, new: true }
-    );
-
-    const result = forcedOutcome
-      ? spinForTier(betAmount, isFreeSpin, forcedOutcome.targetTier, paytableConfig)
-      : spin(betAmount, isFreeSpin, paytableConfig);
-
-    const stakedAmount = isFreeSpin ? 0 : betAmount;
-    user.balance = Math.round((user.balance - stakedAmount + result.winAmount) * 100) / 100;
-    await user.save();
+    if (
+      !Array.isArray(reelSymbols) ||
+      reelSymbols.length === 0 ||
+      !reelSymbols.every((reel) => Array.isArray(reel) && reel.every((s) => typeof s === "string"))
+    ) {
+      res.status(400).json({ error: "reelSymbols must be an array of symbol arrays" });
+      return;
+    }
+    if (tier !== null && tier !== undefined && !WIN_TIERS.includes(tier)) {
+      res.status(400).json({ error: "tier must be null or one of BIG WIN, MEGA WIN, JACKPOT" });
+      return;
+    }
 
     const spinDoc = await SpinHistory.create({
-      userId: user._id,
+      userId: req.userId,
       gameId: shamrockSpinMeta.id,
-      betAmount: stakedAmount,
-      winAmount: result.winAmount,
-      reelSymbols: result.reels.map((r) => r.symbols),
-      balanceAfter: user.balance,
-      tier: result.tier,
-      forced: Boolean(forcedOutcome),
-      forcedOutcomeId: forcedOutcome?._id ?? null,
+      betAmount,
+      winAmount,
+      reelSymbols,
+      balanceAfter,
+      tier: (tier ?? null) as WinTierName | null,
+      forced: false,
+      forcedOutcomeId: null,
     });
 
-    if (forcedOutcome) {
-      forcedOutcome.consumedSpinId = spinDoc._id;
-      await forcedOutcome.save();
+    // Best-effort — a user lookup failing here shouldn't fail the log write itself, just
+    // means this one event won't show up in the admin Live Feed.
+    const user = await User.findById(req.userId).select("username").lean().catch(() => null);
+    if (user) {
+      emitSpinEvent({
+        userId: String(req.userId),
+        username: user.username,
+        gameId: shamrockSpinMeta.id,
+        bet: betAmount,
+        winAmount,
+        tier: (tier ?? null) as WinTierName | null,
+        forced: false,
+        balanceAfter,
+        createdAt: spinDoc.createdAt.toISOString(),
+      });
     }
 
-    emitSpinEvent({
-      userId: String(user._id),
-      username: user.username,
-      gameId: shamrockSpinMeta.id,
-      bet: stakedAmount,
-      winAmount: result.winAmount,
-      tier: result.tier,
-      forced: Boolean(forcedOutcome),
-      balanceAfter: user.balance,
-      createdAt: spinDoc.createdAt.toISOString(),
-    });
-
-    res.json({
-      reels: result.reels.map((r) => r.symbols),
-      lineSymbols: result.lineSymbols,
-      winRuleId: result.winRuleId,
-      multiplier: result.multiplier,
-      winAmount: result.winAmount,
-      tier: result.tier,
-      freeSpinsAwarded: result.freeSpinsAwarded,
-      balance: user.balance,
-      meta: { forced: Boolean(forcedOutcome) },
-    });
+    res.status(201).json({ ok: true });
   })
 );
 
